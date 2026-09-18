@@ -8,6 +8,15 @@ pub struct ExecEvent {
     pub filename: [u8; 128],
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct OpenEvent {
+    pub ktime_ns: u64,
+    pub pid: u32,
+    pub comm: [u8; 16],
+    pub filename: [u8; 128],
+}
+
 impl ExecEvent {
     pub fn comm(&self) -> &[u8] {
         let end = self
