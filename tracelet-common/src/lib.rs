@@ -1,3 +1,3 @@
 pub mod event;
 
-pub use event::ExecEvent;
+pub use event::{ExecEvent, OpenEvent};
