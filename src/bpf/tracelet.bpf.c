@@ -30,3 +30,36 @@ int trace_exec(struct trace_event_raw_sched_process_exec *ctx)
 }
 
 char LICENSE[] SEC("license") = "GPL";
+
+static int submit_open(const char *fname)
+{
+    struct open_event *ev;
+
+    ev = bpf_ringbuf_reserve(&events, sizeof(*ev), 0);
+    if (!ev)
+        return 0;
+    ev->ktime_ns = bpf_ktime_get_ns();
+    ev->pid = (__u32)(bpf_get_current_pid_tgid() >> 32);
+    bpf_get_current_comm(ev->comm, sizeof(ev->comm));
+    bpf_probe_read_user_str(ev->filename, sizeof(ev->filename), fname);
+    bpf_ringbuf_submit(ev, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_open")
+int trace_open(struct trace_event_raw_sys_enter *ctx)
+{
+    return submit_open((const char *)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_enter_openat")
+int trace_openat(struct trace_event_raw_sys_enter *ctx)
+{
+    return submit_open((const char *)ctx->args[1]);
+}
+
+SEC("tp/syscalls/sys_enter_openat2")
+int trace_openat2(struct trace_event_raw_sys_enter *ctx)
+{
+    return submit_open((const char *)ctx->args[1]);
+}
