@@ -1,8 +1,11 @@
 use clap::{Parser, Subcommand};
 
 mod error;
+mod exec;
 
 pub use error::TraceletError;
+
+include!(concat!(env!("OUT_DIR"), "/tracelet.skel.rs"));
 
 #[derive(Parser)]
 #[command(name = "tracelet", version, about = "Linux observability with eBPF")]
@@ -34,7 +37,7 @@ fn placeholder(name: &str) {
 fn main() -> Result<(), TraceletError> {
     let cli = Cli::parse();
     match &cli.command {
-        Command::Exec => placeholder("exec"),
+        Command::Exec => exec::run()?,
         Command::Open => placeholder("open"),
         Command::Tcp => placeholder("tcp"),
         Command::Latency => placeholder("latency"),
