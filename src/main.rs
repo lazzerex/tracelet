@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
 
 mod error;
+mod events;
 mod exec;
+mod open;
 
 pub use error::TraceletError;
 
@@ -19,7 +21,10 @@ enum Command {
     #[command(about = "Trace process execution events")]
     Exec,
     #[command(about = "Trace file open events")]
-    Open,
+    Open {
+        #[arg(long)]
+        pid: Option<u32>,
+    },
     #[command(about = "Trace TCP connection events")]
     Tcp,
     #[command(about = "Measure event latency statistics")]
@@ -38,7 +43,7 @@ fn main() -> Result<(), TraceletError> {
     let cli = Cli::parse();
     match &cli.command {
         Command::Exec => exec::run()?,
-        Command::Open => placeholder("open"),
+        Command::Open { pid } => open::run(*pid)?,
         Command::Tcp => placeholder("tcp"),
         Command::Latency => placeholder("latency"),
         Command::Top => placeholder("top"),
