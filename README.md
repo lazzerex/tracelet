@@ -46,7 +46,7 @@ kernel hook (tracepoint/kprobe)
 | Command             | Purpose                      | Status        |
 | ------------------- | ---------------------------- | ------------- |
 | `tracelet exec`     | process execution events     | working       |
-| `tracelet open`     | file open events             | placeholder   |
+| `tracelet open`     | file open events             | working       |
 | `tracelet tcp`      | TCP connection events        | placeholder   |
 | `tracelet latency`  | latency statistics           | placeholder   |
 | `tracelet top`      | live top-style view          | placeholder   |
@@ -61,6 +61,27 @@ with a compact event (monotonic timestamp, PID, parent PID, process
 name, executable path read from the tracepoint's data-loc argument),
 and submits it. The Rust side polls the ring buffer with libbpf-rs,
 decodes the fixed-size struct, and prints one line per exec.
+
+## How open tracing works
+
+`tracelet open` attaches eBPF programs to the `sys_enter_open`,
+`sys_enter_openat`, and `sys_enter_openat2` syscall tracepoints,
+covering every open variant. The programs share one helper that
+reserves an event in the same ring buffer used by exec tracing, and
+copy the filename with `bpf_probe_read_user_str` because the path is
+a userspace pointer at syscall entry. The filename is whatever the
+caller passed (relative paths stay relative); the syscall may still
+fail afterwards, so events are attempts, not successful opens.
+`--pid <PID>` filters in userspace after decode.
+
+Manual test for `tracelet open`:
+
+```
+sudo tracelet open                    # terminal 1
+cat /etc/hosts                        # terminal 2
+sudo tracelet open --pid $$           # only one shell's opens
+touch /tmp/x
+```
 
 ## Building
 
