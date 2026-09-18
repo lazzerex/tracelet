@@ -1,0 +1,16 @@
+[package]
+name = "tracelet"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = ["tracelet-common"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+libbpf-rs = "0.27"
+tracelet-common = { path = "tracelet-common" }
+
+[build-dependencies]
+libbpf-cargo = "0.27"
