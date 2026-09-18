@@ -1,6 +1,7 @@
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ExecEvent {
+    pub ktime_ns: u64,
     pub pid: u32,
     pub ppid: u32,
     pub comm: [u8; 16],
@@ -33,6 +34,7 @@ mod tests {
 
     fn event(comm: &[u8], filename: &[u8]) -> ExecEvent {
         let mut ev = ExecEvent {
+            ktime_ns: 0,
             pid: 1,
             ppid: 0,
             comm: [0; 16],
