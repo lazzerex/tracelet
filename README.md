@@ -45,12 +45,22 @@ kernel hook (tracepoint/kprobe)
 
 | Command             | Purpose                      | Status        |
 | ------------------- | ---------------------------- | ------------- |
-| `tracelet exec`     | process execution events     | placeholder   |
+| `tracelet exec`     | process execution events     | working       |
 | `tracelet open`     | file open events             | placeholder   |
 | `tracelet tcp`      | TCP connection events        | placeholder   |
 | `tracelet latency`  | latency statistics           | placeholder   |
 | `tracelet top`      | live top-style view          | placeholder   |
 | `tracelet dashboard`| terminal dashboard           | placeholder   |
+
+## How exec tracing works
+
+`tracelet exec` attaches an eBPF program to the `sched_process_exec`
+tracepoint, which fires in the kernel every time a process calls
+`execve()`. The program reserves space in a BPF ring buffer, fills it
+with a compact event (monotonic timestamp, PID, parent PID, process
+name, executable path read from the tracepoint's data-loc argument),
+and submits it. The Rust side polls the ring buffer with libbpf-rs,
+decodes the fixed-size struct, and prints one line per exec.
 
 ## Building
 
@@ -67,7 +77,19 @@ cargo test
 ## Usage
 
 ```
-tracelet exec
+sudo tracelet exec
 ```
 
 Most commands need root privileges to attach eBPF programs.
+
+Manual test for `tracelet exec`: run it in one terminal, then in another:
+
+```
+ls
+sleep 1
+python3 -c "pass"
+bash -c "exit"
+```
+
+Each command prints one line with its timestamp, PID, PPID, process
+name and executable path.
