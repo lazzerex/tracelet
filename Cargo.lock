@@ -641,6 +641,7 @@ dependencies = [
  "clap",
  "libbpf-cargo",
  "libbpf-rs",
+ "libc",
  "tracelet-common",
 ]
 
