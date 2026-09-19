@@ -1,5 +1,6 @@
 struct exec_event {
     __u64 ktime_ns;
+    __u32 kind;
     __u32 pid;
     __u32 ppid;
     char comm[16];
@@ -8,6 +9,7 @@ struct exec_event {
 
 struct open_event {
     __u64 ktime_ns;
+    __u32 kind;
     __u32 pid;
     char comm[16];
     char filename[128];
@@ -19,6 +21,9 @@ struct open_event {
 #define TCP_EVENT_CONNECT 1
 #define TCP_EVENT_ACCEPT 2
 #define TCP_EVENT_CLOSE 3
+
+#define EVENT_KIND_EXEC 1
+#define EVENT_KIND_OPEN 2
 
 #define HIST_SLOTS 32
 
