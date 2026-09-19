@@ -6,6 +6,8 @@ use tracelet_common::TcpEvent;
 
 use crate::error::TraceletError;
 use crate::events::{boot_time_ns, decode_tcp, str_of, wall_time};
+use crate::filter::{self, EventKind, FilterArgs};
+use crate::stats::warn_on_drops;
 use crate::TraceletSkelBuilder;
 
 fn print_event(ev: &TcpEvent, boot_offset_ns: u64) {
@@ -19,10 +21,15 @@ fn print_event(ev: &TcpEvent, boot_offset_ns: u64) {
     );
 }
 
-pub fn run() -> Result<(), TraceletError> {
+pub fn run(args: &FilterArgs, event: Option<EventKind>) -> Result<(), TraceletError> {
+    let config = filter::config(args, filter::event_mask(event))?;
     let skel_builder = TraceletSkelBuilder::default();
     let mut object = std::mem::MaybeUninit::uninit();
-    let open_skel = skel_builder.open(&mut object)?;
+    let mut open_skel = skel_builder.open(&mut object)?;
+    filter::apply(
+        &mut open_skel.maps.rodata_data.as_deref_mut().unwrap().filt,
+        &config,
+    );
     let skel = open_skel.load()?;
 
     let _link = skel.progs.trace_tcp.attach()?;
@@ -39,7 +46,9 @@ pub fn run() -> Result<(), TraceletError> {
     })?;
     let rb = rb_builder.build()?;
 
+    let mut dropped = 0;
     loop {
         rb.poll(Duration::from_millis(200))?;
+        warn_on_drops(&skel.maps.drops, &mut dropped)?;
     }
 }
