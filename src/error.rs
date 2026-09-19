@@ -3,6 +3,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum TraceletError {
     Bpf(String),
+    Invalid(String),
     Io(std::io::Error),
     Libbpf(libbpf_rs::Error),
 }
@@ -11,6 +12,7 @@ impl fmt::Display for TraceletError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TraceletError::Bpf(msg) => write!(f, "bpf error: {msg}"),
+            TraceletError::Invalid(msg) => write!(f, "invalid argument: {msg}"),
             TraceletError::Io(err) => write!(f, "io error: {err}"),
             TraceletError::Libbpf(err) => write!(f, "libbpf error: {err}"),
         }
