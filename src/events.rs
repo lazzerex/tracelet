@@ -10,10 +10,9 @@ pub fn boot_time_ns() -> u64 {
     (ts.tv_sec as u64) * 1_000_000_000 + ts.tv_nsec as u64
 }
 
-pub fn wall_time(ktime_ns: u64, boot_offset_ns: u64) -> String {
-    let wall_ns = boot_offset_ns.wrapping_add(ktime_ns);
-    let secs = wall_ns / 1_000_000_000;
-    let millis = (wall_ns % 1_000_000_000) / 1_000_000;
+pub fn clock_time(ns: u64) -> String {
+    let secs = ns / 1_000_000_000;
+    let millis = (ns % 1_000_000_000) / 1_000_000;
     format!(
         "{:02}:{:02}:{:02}.{:03}",
         (secs / 3600) % 24,
@@ -21,6 +20,10 @@ pub fn wall_time(ktime_ns: u64, boot_offset_ns: u64) -> String {
         secs % 60,
         millis
     )
+}
+
+pub fn wall_time(ktime_ns: u64, boot_offset_ns: u64) -> String {
+    clock_time(boot_offset_ns.wrapping_add(ktime_ns))
 }
 
 fn printable(buf: &[u8]) -> bool {
