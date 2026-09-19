@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+mod collector;
+mod dashboard;
 mod error;
 mod events;
 mod exec;
@@ -50,9 +52,11 @@ enum Command {
     },
     #[command(about = "Show live top-style view of activity")]
     Top,
-    #[command(about = "Launch the terminal dashboard")]
+    #[command(about = "Launch the terminal dashboard", after_help = DASHBOARD_HELP)]
     Dashboard,
 }
+
+const DASHBOARD_HELP: &str = "Keys:\n  space   pause / resume\n  up/down scroll one row\n  pgup/pgdn scroll a page\n  home    newest event\n  end     oldest event\n  tab     switch pane\n  q       quit";
 
 fn placeholder(name: &str) {
     println!("{name}: not implemented yet");
@@ -66,7 +70,7 @@ fn main() -> Result<(), TraceletError> {
         Command::Tcp { filter, event } => tcp::run(filter, *event)?,
         Command::Latency { filter, syscall } => latency::run(filter, *syscall)?,
         Command::Top => placeholder("top"),
-        Command::Dashboard => placeholder("dashboard"),
+        Command::Dashboard => dashboard::run(&FilterArgs::default())?,
     }
     Ok(())
 }
