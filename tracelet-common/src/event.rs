@@ -1,7 +1,11 @@
+pub const EVENT_KIND_EXEC: u32 = 1;
+pub const EVENT_KIND_OPEN: u32 = 2;
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ExecEvent {
     pub ktime_ns: u64,
+    pub kind: u32,
     pub pid: u32,
     pub ppid: u32,
     pub comm: [u8; 16],
@@ -12,6 +16,7 @@ pub struct ExecEvent {
 #[derive(Debug, Clone, Copy)]
 pub struct OpenEvent {
     pub ktime_ns: u64,
+    pub kind: u32,
     pub pid: u32,
     pub comm: [u8; 16],
     pub filename: [u8; 128],
@@ -91,6 +96,7 @@ mod tests {
     fn event(comm: &[u8], filename: &[u8]) -> ExecEvent {
         let mut ev = ExecEvent {
             ktime_ns: 0,
+            kind: super::EVENT_KIND_EXEC,
             pid: 1,
             ppid: 0,
             comm: [0; 16],
