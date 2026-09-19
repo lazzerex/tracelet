@@ -3,12 +3,15 @@ use clap::{Parser, Subcommand};
 mod error;
 mod events;
 mod exec;
+mod filter;
 mod hist;
 mod latency;
 mod open;
+mod stats;
 mod tcp;
 
 pub use error::TraceletError;
+use filter::{EventKind, FilterArgs, SyscallKind};
 
 include!(concat!(env!("OUT_DIR"), "/tracelet.skel.rs"));
 
@@ -22,16 +25,29 @@ pub struct Cli {
 #[derive(Subcommand)]
 enum Command {
     #[command(about = "Trace process execution events")]
-    Exec,
+    Exec {
+        #[command(flatten)]
+        filter: FilterArgs,
+    },
     #[command(about = "Trace file open events")]
     Open {
-        #[arg(long)]
-        pid: Option<u32>,
+        #[command(flatten)]
+        filter: FilterArgs,
     },
     #[command(about = "Trace TCP connection events")]
-    Tcp,
+    Tcp {
+        #[command(flatten)]
+        filter: FilterArgs,
+        #[arg(long, value_enum, help = "Only show this connection event")]
+        event: Option<EventKind>,
+    },
     #[command(about = "Measure event latency statistics")]
-    Latency,
+    Latency {
+        #[command(flatten)]
+        filter: FilterArgs,
+        #[arg(long, value_enum, help = "Only measure this syscall")]
+        syscall: Option<SyscallKind>,
+    },
     #[command(about = "Show live top-style view of activity")]
     Top,
     #[command(about = "Launch the terminal dashboard")]
@@ -45,10 +61,10 @@ fn placeholder(name: &str) {
 fn main() -> Result<(), TraceletError> {
     let cli = Cli::parse();
     match &cli.command {
-        Command::Exec => exec::run()?,
-        Command::Open { pid } => open::run(*pid)?,
-        Command::Tcp => tcp::run()?,
-        Command::Latency => latency::run()?,
+        Command::Exec { filter } => exec::run(filter)?,
+        Command::Open { filter } => open::run(filter)?,
+        Command::Tcp { filter, event } => tcp::run(filter, *event)?,
+        Command::Latency { filter, syscall } => latency::run(filter, *syscall)?,
         Command::Top => placeholder("top"),
         Command::Dashboard => placeholder("dashboard"),
     }
