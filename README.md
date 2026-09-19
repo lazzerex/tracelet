@@ -47,7 +47,7 @@ kernel hook (tracepoint/kprobe)
 | ------------------- | ---------------------------- | ------------- |
 | `tracelet exec`     | process execution events     | working       |
 | `tracelet open`     | file open events             | working       |
-| `tracelet tcp`      | TCP connection events        | placeholder   |
+| `tracelet tcp`      | TCP connection events        | working       |
 | `tracelet latency`  | latency statistics           | placeholder   |
 | `tracelet top`      | live top-style view          | placeholder   |
 | `tracelet dashboard`| terminal dashboard           | placeholder   |
@@ -81,6 +81,35 @@ sudo tracelet open                    # terminal 1
 cat /etc/hosts                        # terminal 2
 sudo tracelet open --pid $$           # only one shell's opens
 touch /tmp/x
+```
+
+## How tcp tracing works
+
+`tracelet tcp` attaches to the `sock:inet_sock_set_state` tracepoint,
+which fires whenever the kernel changes a TCP socket's state. Only
+three transitions are reported:
+
+| Transition                        | Reported as |
+| --------------------------------- | ----------- |
+| `SYN_SENT` -> `ESTABLISHED`        | CONNECT     |
+| `SYN_RECV` -> `ESTABLISHED`        | ACCEPT      |
+| any -> `CLOSE`                     | CLOSE       |
+
+The event carries the timestamp, PID, process name, address family,
+source and destination address and port. Addresses come from the
+socket's own fields (`inet_saddr`/`inet_daddr` for IPv4,
+`inet6_saddr`/`inet6_daddr` for IPv6), so no packet inspection is
+involved: this is connection metadata taken straight from the socket
+state machine.
+
+Manual test for `tracelet tcp`:
+
+```
+sudo tracelet tcp                          # terminal 1
+curl -s https://example.com > /dev/null    # terminal 2 -> CONNECT
+python3 -m http.server 8080                # terminal 3
+curl -s http://localhost:8080 > /dev/null  # -> CONNECT
+                                           #   ACCEPT + CLOSE on the server side
 ```
 
 ## Building
