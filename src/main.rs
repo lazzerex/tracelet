@@ -3,6 +3,8 @@ use clap::{Parser, Subcommand};
 mod error;
 mod events;
 mod exec;
+mod hist;
+mod latency;
 mod open;
 mod tcp;
 
@@ -46,7 +48,7 @@ fn main() -> Result<(), TraceletError> {
         Command::Exec => exec::run()?,
         Command::Open { pid } => open::run(*pid)?,
         Command::Tcp => tcp::run()?,
-        Command::Latency => placeholder("latency"),
+        Command::Latency => latency::run()?,
         Command::Top => placeholder("top"),
         Command::Dashboard => placeholder("dashboard"),
     }
