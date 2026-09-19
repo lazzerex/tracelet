@@ -1,3 +1,4 @@
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
     pub count: u64,
     pub p50: u64,
