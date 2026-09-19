@@ -2,10 +2,12 @@ use std::time::Duration;
 
 use libbpf_rs::skel::{OpenSkel, SkelBuilder};
 use libbpf_rs::RingBufferBuilder;
-use tracelet_common::OpenEvent;
+use tracelet_common::{OpenEvent, FILTER_EVENT_ALL};
 
 use crate::error::TraceletError;
 use crate::events::{boot_time_ns, decode_open, str_of, wall_time};
+use crate::filter::{self, FilterArgs};
+use crate::stats::warn_on_drops;
 use crate::TraceletSkelBuilder;
 
 fn print_event(ev: &OpenEvent, boot_offset_ns: u64) {
@@ -18,15 +20,25 @@ fn print_event(ev: &OpenEvent, boot_offset_ns: u64) {
     );
 }
 
-pub fn run(pid: Option<u32>) -> Result<(), TraceletError> {
+pub fn run(args: &FilterArgs) -> Result<(), TraceletError> {
+    let config = filter::config(args, FILTER_EVENT_ALL)?;
     let skel_builder = TraceletSkelBuilder::default();
     let mut object = std::mem::MaybeUninit::uninit();
-    let open_skel = skel_builder.open(&mut object)?;
+    let mut open_skel = skel_builder.open(&mut object)?;
+    filter::apply(
+        &mut open_skel.maps.rodata_data.as_deref_mut().unwrap().filt,
+        &config,
+    );
     let skel = open_skel.load()?;
 
-    let _open = skel.progs.trace_open.attach()?;
-    let _openat = skel.progs.trace_openat.attach()?;
-    let _openat2 = skel.progs.trace_openat2.attach()?;
+    let mut links = Vec::new();
+    for prog in [
+        &skel.progs.trace_open,
+        &skel.progs.trace_openat,
+        &skel.progs.trace_openat2,
+    ] {
+        links.push(prog.attach()?);
+    }
 
     let boot_offset_ns = boot_time_ns();
     println!("TIME         PID     PROCESS          PATH");
@@ -34,15 +46,15 @@ pub fn run(pid: Option<u32>) -> Result<(), TraceletError> {
     let mut rb_builder = RingBufferBuilder::new();
     rb_builder.add(&skel.maps.events, |data| {
         if let Some(ev) = decode_open(data) {
-            if pid.is_none_or(|p| p == ev.pid) {
-                print_event(&ev, boot_offset_ns);
-            }
+            print_event(&ev, boot_offset_ns);
         }
         0
     })?;
     let rb = rb_builder.build()?;
 
+    let mut dropped = 0;
     loop {
         rb.poll(Duration::from_millis(200))?;
+        warn_on_drops(&skel.maps.drops, &mut dropped)?;
     }
 }
