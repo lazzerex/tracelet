@@ -61,6 +61,16 @@ kernel hook (tracepoint)
   -> CLI output
 ```
 
+`tracelet dashboard` adds a collector thread and a TUI on top:
+
+```
+kernel hooks (exec + open + tcp)
+  -> eBPF program (C), one shared ring buffer
+  -> collector thread: decode, aggregate, hold bounded stream
+  -> Mutex<Shared> snapshot
+  -> ratatui TUI: redraw at most 1 Hz or on keypress
+```
+
 ## Commands
 
 | Command             | Purpose                      | Status        |
@@ -69,8 +79,8 @@ kernel hook (tracepoint)
 | `tracelet open`     | file open events             | working       |
 | `tracelet tcp`      | TCP connection events        | working       |
 | `tracelet latency`  | latency statistics           | working       |
-| `tracelet top`      | live top-style view          | placeholder   |
-| `tracelet dashboard`| terminal dashboard           | placeholder   |
+| `tracelet top`      | live top-style view          | phase 8       |
+| `tracelet dashboard`| terminal dashboard           | working       |
 
 ## How exec tracing works
 
@@ -323,3 +333,44 @@ bash -c "exit"
 
 Each command prints one line with its timestamp, PID, PPID, process
 name and executable path.
+
+## Dashboard
+
+```
+sudo tracelet dashboard
+```
+
+Runs a TUI combining every event source. The eBPF side attaches all
+hooks at once (exec, the three open syscalls, and TCP state changes)
+and pushes everything through the single shared ring buffer. A
+background collector thread decodes events, maintains the aggregates,
+and keeps a bounded 512-row stream; the TUI thread takes a snapshot
+under the mutex and renders it.
+
+Panes: overview (rate, process count, totals, dropped counter),
+per-syscall latency percentiles, live event stream, top processes by
+event count.
+
+Keys: `space` pause/resume, arrows scroll one row, pgup/pgdn a page,
+`home` newest, `end` oldest, `tab` switch pane, `q` or `ctrl-c` quit.
+Pause is display-side only: the collector keeps draining the ring
+buffer and updating aggregates, so nothing is lost while paused.
+
+### Implementation notes
+
+- **Event tagging**: exec and open events were indistinguishable on a
+  mixed stream (both 160 bytes), so both structs carry a `kind` field
+  set by the BPF program; the decoder checks it before trusting the
+  payload.
+- **Snapshot model**: the collector mutates `Shared` under a mutex;
+  `Snapshot::take` clones what it needs and the TUI drops the lock
+  before rendering. The stream is newest-first and capped at 512 rows,
+  so memory is bounded regardless of runtime.
+- **Rate**: events-per-second is total events divided by elapsed wall
+  seconds since start (a whole-run average, not a sliding window).
+- **Redraw policy**: at most once per second or on keypress, whichever
+  comes first; event polling runs at 100 ms.
+- **Known limitation**: `home`/`end` scroll positions clamp back to
+  the newest/oldest rows only as new events arrive, since the list
+  re-renders newest-first on every refresh; the buffer never holds
+  more than 512 rows, so scrolling stops there.
