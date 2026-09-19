@@ -11,6 +11,8 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
 libbpf-rs = "0.27"
+ratatui = "0.30"
+crossterm = "0.29"
 tracelet-common = { path = "tracelet-common" }
 
 [build-dependencies]
