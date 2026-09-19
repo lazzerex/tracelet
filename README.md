@@ -26,18 +26,35 @@ crashes instead of kernel panics.
 src/
   main.rs            CLI entry point (clap)
   error.rs           error types
+  events.rs          event decoding and time formatting
+  exec.rs            exec collector
+  open.rs            open collector
+  tcp.rs             tcp collector
+  latency.rs         latency collector
+  hist.rs            histogram to percentile math
   bpf/               eBPF programs (C), compiled by clang -target bpf
-tracelet-common/     event structs shared between eBPF and Rust
+tracelet-common/     event structs and constants shared between eBPF and Rust
 build.rs             generates the libbpf-rs skeleton at build time
 ```
 
-Pipeline (later phases):
+Pipeline:
 
 ```
 kernel hook (tracepoint/kprobe)
   -> eBPF program (C)
   -> BPF ring buffer
   -> Rust collector (libbpf-rs)
+  -> CLI output
+```
+
+`tracelet latency` replaces the ring buffer with BPF maps and moves
+aggregation into the kernel:
+
+```
+kernel hook (tracepoint)
+  -> eBPF program (C)
+  -> BPF maps (histogram counters)
+  -> Rust reads counters
   -> CLI output
 ```
 
@@ -48,7 +65,7 @@ kernel hook (tracepoint/kprobe)
 | `tracelet exec`     | process execution events     | working       |
 | `tracelet open`     | file open events             | working       |
 | `tracelet tcp`      | TCP connection events        | working       |
-| `tracelet latency`  | latency statistics           | placeholder   |
+| `tracelet latency`  | latency statistics           | working       |
 | `tracelet top`      | live top-style view          | placeholder   |
 | `tracelet dashboard`| terminal dashboard           | placeholder   |
 
@@ -111,6 +128,61 @@ python3 -m http.server 8080                # terminal 3
 curl -s http://localhost:8080 > /dev/null  # -> CONNECT
                                            #   ACCEPT + CLOSE on the server side
 ```
+
+## How latency works
+
+`tracelet latency` measures how long three syscalls (`read`, `write`,
+`openat`) spend inside the kernel. Unlike the other commands it does
+not use the ring buffer at all: aggregation happens in the kernel.
+
+On `sys_enter_*` the program stores `bpf_ktime_get_ns()` (monotonic)
+in a hash map keyed by thread id. On the matching `sys_exit_*` it
+looks the timestamp up, deletes the entry, and adds one to a log2
+histogram bucket for that syscall in a BPF array map. Userspace only
+reads the counters, so no per-event data crosses the kernel boundary.
+
+```
+syscall:  read = 0   write = 1   openat = 2
+hist map: array, 3 * 32 = 96 slots, 8 bytes each
+start map: hash, max 10240 threads, 8 bytes each
+```
+
+Each printed value is the upper bound of the bucket where the
+cumulative count reached the requested percentile.
+
+Manual test for `tracelet latency`:
+
+```
+sudo tracelet latency                    # terminal 1
+cat /etc/hosts > /dev/null               # terminal 2 -> read/openat counts rise
+dd if=/dev/zero of=/dev/null bs=1M count=200   # write/read counts rise
+```
+
+### What is measured, and what is not
+
+The delta is the time between two tracepoints in kernel context. It
+includes time the task spent blocked or scheduled out inside the
+syscall, and excludes all userspace time before the syscall and after
+it returned. It is therefore kernel service time for a syscall, not
+application-level latency, and not a wall-clock round trip.
+
+Known limitations:
+
+- Percentiles come from log2 buckets, so a reported value is the upper
+  bound of a power-of-two range, not an exact measurement. Resolution
+  is coarse for slow operations (e.g. 2.1s is reported as 4.29s).
+- The last bucket is an overflow bucket: everything at or above 2^32 ns
+  (about 4.29s) lands in it.
+- Samples are correlated per thread. A thread that re-enters the same
+  syscall overwrites its start timestamp, and a syscall that returns
+  after the tracepoint is detached leaves a stale entry behind. Stale
+  entries are bounded by the start map size.
+- If the start map is full, new samples are silently not recorded. The
+  histogram counts only paired enter/exit events.
+- Counters are global across all processes and threads; there is no
+  per-process breakdown, which is what keeps memory bounded.
+- Counters are cumulative since the command started, and a snapshot is
+  printed once per second.
 
 ## Building
 
