@@ -32,8 +32,11 @@ src/
   tcp.rs             tcp collector
   latency.rs         latency collector
   hist.rs            histogram to percentile math
+  filter.rs          filter parsing and kernel filter configuration
+  stats.rs           kernel drop counter reporting
   bpf/               eBPF programs (C), compiled by clang -target bpf
-tracelet-common/     event structs and constants shared between eBPF and Rust
+tracelet-common/     event structs, constants, and filter config shared between eBPF and Rust
+bench/               workload generator and overhead measurement scripts
 build.rs             generates the libbpf-rs skeleton at build time
 ```
 
@@ -89,7 +92,8 @@ copy the filename with `bpf_probe_read_user_str` because the path is
 a userspace pointer at syscall entry. The filename is whatever the
 caller passed (relative paths stay relative); the syscall may still
 fail afterwards, so events are attempts, not successful opens.
-`--pid <PID>` filters in userspace after decode.
+Filters are applied inside the eBPF program before the event is
+created; see Filtering.
 
 Manual test for `tracelet open`:
 
@@ -183,6 +187,110 @@ Known limitations:
   per-process breakdown, which is what keeps memory bounded.
 - Counters are cumulative since the command started, and a snapshot is
   printed once per second.
+
+## Filtering
+
+Every collector accepts `--pid <PID>` and `--comm <NAME>`; `tracelet
+tcp` adds `--event <connect|accept|close>` and `tracelet latency` adds
+`--syscall <read|write|openat>`.
+
+The pid, comm, and event-type filters run inside the eBPF programs.
+The collector writes a `filter_config` struct into the skeleton's
+read-only data before load, and each program checks it before touching
+the ring buffer, so a filtered-out event never reserves a ring buffer
+slot, never crosses the kernel boundary, and never wakes the printer:
+
+```
+struct filter_config {
+    __u32 pid;
+    __u32 pid_enabled;
+    __u32 comm_enabled;
+    __u32 event_mask;
+    char comm[16];
+};
+```
+
+`--syscall` is different: it decides which programs are attached, so
+unselected syscalls are not traced at all instead of filtered after
+the fact.
+
+The filters are fixed for the lifetime of the process because
+read-only data cannot change after load. Runtime filter changes would
+need a writable BPF map instead, which is the standard extension point
+if this tool ever needs it.
+
+Kernel-side vs userspace-side filtering:
+
+- Kernel-side (used here): the check itself runs in kernel context on
+  every hit event even when it rejects it. The pid check is one helper
+  call and a compare; the comm check is one helper call plus an
+  unrolled 16-byte comparison against `bpf_get_current_comm` output.
+  No string helpers run on user data and no user pointers are read,
+  so the check's cost is constant regardless of process name content.
+  In exchange, rejected events cost nothing else: no ring buffer slot,
+  no copy, no wakeup, no userspace scheduling. Under high event rates
+  with a narrow filter, userspace stays idle and the ring buffer keeps
+  space for events that matter.
+- Userspace-side: the kernel program stays minimal and filters can
+  change at runtime, but every event is copied across the boundary and
+  wakes the collector, and the ring buffer fills with rows the tool
+  throws away. At high rates that spending dwarfs the in-kernel check.
+
+## Measuring overhead
+
+`bench/workload.sh` generates controlled amounts of each event type:
+
+```
+./bench/workload.sh exec 50        # 50 process executions of /bin/true
+./bench/workload.sh open 50        # 50 opens of /etc/hosts
+./bench/workload.sh tcp 50         # 50 loopback TCP connections
+```
+
+The tcp workload starts a local python server, waits for it to accept,
+opens exactly `count` connections, and verifies the server saw every
+one of them, so the generated event count is known.
+
+`bench/measure.sh` compares the workload alone against the same
+workload with a collector attached:
+
+```
+cargo build --release
+sudo ./bench/measure.sh exec 200 3
+```
+
+It needs the release binary and root. For each of `runs` iterations it
+prints one baseline row (workload alone) and one traced row (workload
+with `tracelet <kind>` attached in the background):
+
+| Column    | Meaning                                                        |
+| --------- | -------------------------------------------------------------- |
+| wl_wall_s | wall time of the workload process                              |
+| wl_cpu_s  | user+sys CPU of the workload                                   |
+| tr_cpu_s  | user+sys CPU of the tracer, read from /proc before stopping it |
+| tr_rss_mb | peak resident memory (VmHWM) of the tracer                     |
+| tr_map_mb | memlock bytes charged to the tracer's BPF maps and programs    |
+| events    | rows the collector printed                                     |
+| ev_per_s  | events divided by workload wall time                           |
+| dropped   | events dropped by the kernel, from the tracer's warning        |
+
+The report header records the date, kernel version, CPU model, core
+count, memory, clang and rustc versions, and the tracelet version;
+each report is saved under `bench/results/`.
+
+How to read the numbers: `tr_cpu_s` is the tracer's own CPU cost while
+the workload runs. The workload's own `wl_cpu_s` and `wl_wall_s` rows
+contain whatever the hooks add to the workload, but wall time carries
+scheduling noise, which is why the script runs baseline and traced
+iterations several times and why results should be compared between
+rows of the same report, not against reports from other machines.
+`tr_map_mb` is the kernel-side memory that stays charged while the
+collector runs; the 16 MiB ring buffer dominates it, so shrinking
+`max_entries` of the `events` map is the first lever if the memory
+budget is tighter.
+
+No overhead numbers are claimed here: run the script on the target
+machine to produce them. Numbers are only meaningful against the
+baseline rows of the same report on the same boot.
 
 ## Building
 
