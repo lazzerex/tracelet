@@ -17,6 +17,53 @@ pub struct OpenEvent {
     pub filename: [u8; 128],
 }
 
+pub const AF_INET: u8 = 2;
+pub const AF_INET6: u8 = 10;
+
+pub const TCP_EVENT_CONNECT: u8 = 1;
+pub const TCP_EVENT_ACCEPT: u8 = 2;
+pub const TCP_EVENT_CLOSE: u8 = 3;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct TcpEvent {
+    pub ktime_ns: u64,
+    pub pid: u32,
+    pub comm: [u8; 16],
+    pub event_type: u8,
+    pub family: u8,
+    pub sport: u16,
+    pub dport: u16,
+    pub saddr: [u8; 16],
+    pub daddr: [u8; 16],
+}
+
+impl TcpEvent {
+    pub fn event_name(&self) -> &'static str {
+        match self.event_type {
+            TCP_EVENT_CONNECT => "CONNECT",
+            TCP_EVENT_ACCEPT => "ACCEPT",
+            TCP_EVENT_CLOSE => "CLOSE",
+            _ => "UNKNOWN",
+        }
+    }
+
+    pub fn source(&self) -> String {
+        format!("{}:{}", self.addr_of(&self.saddr), self.sport)
+    }
+
+    pub fn destination(&self) -> String {
+        format!("{}:{}", self.addr_of(&self.daddr), self.dport)
+    }
+
+    fn addr_of(&self, bytes: &[u8; 16]) -> String {
+        match self.family {
+            AF_INET => std::net::Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]).to_string(),
+            _ => format!("[{}]", std::net::Ipv6Addr::from(*bytes)),
+        }
+    }
+}
+
 impl ExecEvent {
     pub fn comm(&self) -> &[u8] {
         let end = self
