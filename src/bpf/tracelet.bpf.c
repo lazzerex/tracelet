@@ -62,6 +62,7 @@ int trace_exec(struct trace_event_raw_sched_process_exec *ctx)
     }
 
     ev->ktime_ns = bpf_ktime_get_ns();
+    ev->kind = EVENT_KIND_EXEC;
     ev->pid = (__u32)ctx->pid;
     task = (struct task_struct *)bpf_get_current_task_btf();
     ev->ppid = (__u32)BPF_CORE_READ(task, real_parent, tgid);
@@ -86,6 +87,7 @@ static int submit_open(const char *fname)
         return 0;
     }
     ev->ktime_ns = bpf_ktime_get_ns();
+    ev->kind = EVENT_KIND_OPEN;
     ev->pid = (__u32)(bpf_get_current_pid_tgid() >> 32);
     bpf_get_current_comm(ev->comm, sizeof(ev->comm));
     bpf_probe_read_user_str(ev->filename, sizeof(ev->filename), fname);
