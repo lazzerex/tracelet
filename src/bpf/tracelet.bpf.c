@@ -8,15 +8,58 @@ struct {
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u64);
+} drops SEC(".maps");
+
+const volatile struct filter_config filt = {};
+
+static __always_inline void count_drop(void)
+{
+    __u32 key = 0;
+    __u64 *count = bpf_map_lookup_elem(&drops, &key);
+
+    if (count)
+        __sync_fetch_and_add(count, 1);
+}
+
+static __always_inline int allowed(void)
+{
+    if (filt.pid_enabled) {
+        __u32 pid = (__u32)(bpf_get_current_pid_tgid() >> 32);
+
+        if (pid != filt.pid)
+            return 0;
+    }
+    if (filt.comm_enabled) {
+        char comm[16];
+
+        bpf_get_current_comm(comm, sizeof(comm));
+#pragma unroll
+        for (int i = 0; i < 16; i++) {
+            if (comm[i] != filt.comm[i])
+                return 0;
+        }
+    }
+    return 1;
+}
+
 SEC("tp/sched/sched_process_exec")
 int trace_exec(struct trace_event_raw_sched_process_exec *ctx)
 {
     struct exec_event *ev;
     struct task_struct *task;
 
-    ev = bpf_ringbuf_reserve(&events, sizeof(*ev), 0);
-    if (!ev)
+    if (!allowed())
         return 0;
+    ev = bpf_ringbuf_reserve(&events, sizeof(*ev), 0);
+    if (!ev) {
+        count_drop();
+        return 0;
+    }
 
     ev->ktime_ns = bpf_ktime_get_ns();
     ev->pid = (__u32)ctx->pid;
@@ -35,9 +78,13 @@ static int submit_open(const char *fname)
 {
     struct open_event *ev;
 
-    ev = bpf_ringbuf_reserve(&events, sizeof(*ev), 0);
-    if (!ev)
+    if (!allowed())
         return 0;
+    ev = bpf_ringbuf_reserve(&events, sizeof(*ev), 0);
+    if (!ev) {
+        count_drop();
+        return 0;
+    }
     ev->ktime_ns = bpf_ktime_get_ns();
     ev->pid = (__u32)(bpf_get_current_pid_tgid() >> 32);
     bpf_get_current_comm(ev->comm, sizeof(ev->comm));
@@ -69,8 +116,10 @@ static void submit_tcp(struct trace_event_raw_inet_sock_set_state *ctx, __u8 typ
     struct tcp_event *ev;
 
     ev = bpf_ringbuf_reserve(&events, sizeof(*ev), 0);
-    if (!ev)
+    if (!ev) {
+        count_drop();
         return;
+    }
     ev->ktime_ns = bpf_ktime_get_ns();
     ev->pid = (__u32)(bpf_get_current_pid_tgid() >> 32);
     bpf_get_current_comm(ev->comm, sizeof(ev->comm));
@@ -91,13 +140,19 @@ static void submit_tcp(struct trace_event_raw_inet_sock_set_state *ctx, __u8 typ
 SEC("tp/sock/inet_sock_set_state")
 int trace_tcp(struct trace_event_raw_inet_sock_set_state *ctx)
 {
+    if (!allowed())
+        return 0;
     if (ctx->newstate == TCP_ESTABLISHED) {
-        if (ctx->oldstate == TCP_SYN_SENT)
-            submit_tcp(ctx, TCP_EVENT_CONNECT);
-        else if (ctx->oldstate == TCP_SYN_RECV)
-            submit_tcp(ctx, TCP_EVENT_ACCEPT);
+        if (ctx->oldstate == TCP_SYN_SENT) {
+            if (filt.event_mask & FILTER_EVENT_CONNECT)
+                submit_tcp(ctx, TCP_EVENT_CONNECT);
+        } else if (ctx->oldstate == TCP_SYN_RECV) {
+            if (filt.event_mask & FILTER_EVENT_ACCEPT)
+                submit_tcp(ctx, TCP_EVENT_ACCEPT);
+        }
     } else if (ctx->newstate == TCP_CLOSE) {
-        submit_tcp(ctx, TCP_EVENT_CLOSE);
+        if (filt.event_mask & FILTER_EVENT_CLOSE)
+            submit_tcp(ctx, TCP_EVENT_CLOSE);
     }
     return 0;
 }
@@ -150,7 +205,10 @@ static __always_inline int syscall_enter(void)
     __u64 key = bpf_get_current_pid_tgid();
     __u64 ts = bpf_ktime_get_ns();
 
-    bpf_map_update_elem(&latency_start, &key, &ts, BPF_ANY);
+    if (!allowed())
+        return 0;
+    if (bpf_map_update_elem(&latency_start, &key, &ts, BPF_ANY))
+        count_drop();
     return 0;
 }
 
