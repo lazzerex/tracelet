@@ -20,6 +20,15 @@ struct open_event {
 #define TCP_EVENT_ACCEPT 2
 #define TCP_EVENT_CLOSE 3
 
+#define HIST_SLOTS 32
+
+enum {
+    SYSCALL_READ = 0,
+    SYSCALL_WRITE = 1,
+    SYSCALL_OPENAT = 2,
+    SYSCALL_COUNT = 3,
+};
+
 struct tcp_event {
     __u64 ktime_ns;
     __u32 pid;
