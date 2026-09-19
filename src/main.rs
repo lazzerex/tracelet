@@ -4,6 +4,7 @@ mod error;
 mod events;
 mod exec;
 mod open;
+mod tcp;
 
 pub use error::TraceletError;
 
@@ -44,7 +45,7 @@ fn main() -> Result<(), TraceletError> {
     match &cli.command {
         Command::Exec => exec::run()?,
         Command::Open { pid } => open::run(*pid)?,
-        Command::Tcp => placeholder("tcp"),
+        Command::Tcp => tcp::run()?,
         Command::Latency => placeholder("latency"),
         Command::Top => placeholder("top"),
         Command::Dashboard => placeholder("dashboard"),
