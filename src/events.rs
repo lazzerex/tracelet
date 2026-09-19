@@ -76,8 +76,8 @@ pub fn str_of(buf: &[u8]) -> String {
 mod tests {
     use super::{boot_time_ns, decode_exec, decode_open, decode_tcp, wall_time};
     use tracelet_common::{
-        ExecEvent, OpenEvent, TcpEvent, AF_INET, AF_INET6, TCP_EVENT_ACCEPT, TCP_EVENT_CLOSE,
-        TCP_EVENT_CONNECT,
+        ExecEvent, OpenEvent, TcpEvent, AF_INET, AF_INET6, EVENT_KIND_EXEC, EVENT_KIND_OPEN,
+        TCP_EVENT_ACCEPT, TCP_EVENT_CLOSE, TCP_EVENT_CONNECT,
     };
 
     fn as_bytes<E: Copy>(ev: &E) -> &[u8] {
@@ -89,6 +89,7 @@ mod tests {
     fn exec_event() -> ExecEvent {
         let mut ev = ExecEvent {
             ktime_ns: 123,
+            kind: EVENT_KIND_EXEC,
             pid: 42,
             ppid: 7,
             comm: [0; 16],
@@ -102,6 +103,7 @@ mod tests {
     fn open_event() -> OpenEvent {
         let mut ev = OpenEvent {
             ktime_ns: 456,
+            kind: EVENT_KIND_OPEN,
             pid: 9,
             comm: [0; 16],
             filename: [0; 128],
@@ -208,7 +210,7 @@ mod tests {
 
     #[test]
     fn event_struct_sizes_match_c_layout() {
-        assert_eq!(std::mem::size_of::<ExecEvent>(), 160);
+        assert_eq!(std::mem::size_of::<ExecEvent>(), 168);
         assert_eq!(std::mem::size_of::<OpenEvent>(), 160);
         assert_eq!(std::mem::size_of::<TcpEvent>(), 72);
     }
