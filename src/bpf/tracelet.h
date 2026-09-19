@@ -22,6 +22,19 @@ struct open_event {
 
 #define HIST_SLOTS 32
 
+#define FILTER_EVENT_CONNECT 1
+#define FILTER_EVENT_ACCEPT 2
+#define FILTER_EVENT_CLOSE 4
+#define FILTER_EVENT_ALL 7
+
+struct filter_config {
+    __u32 pid;
+    __u32 pid_enabled;
+    __u32 comm_enabled;
+    __u32 event_mask;
+    char comm[16];
+};
+
 enum {
     SYSCALL_READ = 0,
     SYSCALL_WRITE = 1,
