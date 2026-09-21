@@ -30,7 +30,7 @@ fn printable(buf: &[u8]) -> bool {
     buf.iter().all(|&b| b == 0 || (0x20..0x7f).contains(&b))
 }
 
-fn read_event<E: Copy>(data: &[u8]) -> Option<E> {
+pub fn read_event<E: Copy>(data: &[u8]) -> Option<E> {
     if data.len() != std::mem::size_of::<E>() {
         return None;
     }
