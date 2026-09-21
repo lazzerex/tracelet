@@ -58,7 +58,13 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             validate_version "$next"
             echo "$next"
             ;;
-        exists) tag_exists "${1:?tag required}" && echo "yes" || echo "no" ;;
+        exists)
+            if tag_exists "${2:?tag required}"; then
+                echo "yes"
+            else
+                echo "no"
+            fi
+            ;;
         *) echo "usage: $0 {latest|next <type>|exists <tag>}" >&2; exit 2 ;;
     esac
 fi
