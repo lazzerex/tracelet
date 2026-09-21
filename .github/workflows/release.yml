@@ -1,0 +1,190 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: "Dry run (skip publishing)"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang llvm libelf-dev libbpf-dev pkg-config \
+            linux-headers-generic python3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Calculate version
+        id: version
+        run: |
+          chmod +x scripts/version.sh
+          CURRENT=$(scripts/version.sh latest)
+          NEXT=$(scripts/version.sh next "${{ inputs.release_type }}")
+          TAG_EXISTS=$(scripts/version.sh exists "$NEXT" && echo "yes" || echo "no")
+
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "tag_exists=$TAG_EXISTS" >> "$GITHUB_OUTPUT"
+
+          echo "Current version: $CURRENT"
+          echo "Release type:    ${{ inputs.release_type }}"
+          echo "Next version:    $NEXT"
+          echo "Tag exists:      $TAG_EXISTS"
+
+          if [ "$TAG_EXISTS" = "yes" ]; then
+            echo "::error::Tag $NEXT already exists"
+            exit 1
+          fi
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --workspace
+
+      - name: Release build
+        run: cargo build --release
+
+      - name: CLI surface check
+        run: |
+          ./target/release/tracelet --version
+          ./target/release/tracelet --help
+          for cmd in exec open tcp latency top dashboard; do
+            ./target/release/tracelet "$cmd" --help > /dev/null
+          done
+
+      - name: Build release artifacts
+        run: |
+          VERSION="${{ steps.version.outputs.next }}"
+          ARTIFACT="tracelet-${VERSION}-linux-x86_64"
+          mkdir -p "dist/${ARTIFACT}"
+
+          cp target/release/tracelet "dist/${ARTIFACT}/"
+          cp README.md LICENSE "dist/${ARTIFACT}/" 2>/dev/null || cp README.md "dist/${ARTIFACT}/"
+
+          cd dist
+          tar czf "${ARTIFACT}.tar.gz" "$ARTIFACT"
+          sha256sum "${ARTIFACT}.tar.gz" > "${ARTIFACT}.tar.gz.sha256"
+
+          echo "ARTIFACT_NAME=${ARTIFACT}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_TAR=dist/${ARTIFACT}.tar.gz" >> "$GITHUB_ENV"
+          echo "ARTIFACT_SHA=dist/${ARTIFACT}.tar.gz.sha256" >> "$GITHUB_ENV"
+
+          echo "Built artifacts:"
+          ls -la dist/
+
+      - name: Dry run summary
+        if: inputs.dry_run == true
+        run: |
+          echo ""
+          echo "Tracelet Release Dry Run"
+          echo "------------------------"
+          echo ""
+          echo "Current version:  ${{ steps.version.outputs.current }}"
+          echo "Release type:     ${{ inputs.release_type }}"
+          echo "Next version:     ${{ steps.version.outputs.next }}"
+          echo ""
+          echo "Target tag:       ${{ steps.version.outputs.next }}"
+          echo "Tag exists:       ${{ steps.version.outputs.tag_exists }}"
+          echo ""
+          echo "Rust checks:      passed"
+          echo "eBPF build:       passed"
+          echo "Linux build:      passed"
+          echo ""
+          echo "Artifacts:"
+          echo "  ${ARTIFACT_NAME}.tar.gz"
+          echo "  ${ARTIFACT_NAME}.tar.gz.sha256"
+          echo ""
+          echo "Publishing:       SKIPPED (dry run)"
+          echo ""
+          echo "Result:           DRY RUN PASSED"
+
+      - name: Update Cargo.toml versions
+        if: inputs.dry_run == false
+        run: |
+          VERSION="${{ steps.version.outputs.next }}"
+          VERSION_NUM="${VERSION#v}"
+
+          sed -i "0,/^version = \".*\"/s/^version = \".*\"/version = \"${VERSION_NUM}\"/" Cargo.toml
+          sed -i "0,/^version = \".*\"/s/^version = \".*\"/version = \"${VERSION_NUM}\"/" tracelet-common/Cargo.toml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml tracelet-common/Cargo.toml
+          git commit -m "release: ${VERSION}"
+          git tag "$VERSION"
+
+      - name: Push tag
+        if: inputs.dry_run == false
+        run: git push origin "${{ steps.version.outputs.next }}"
+
+      - name: Create GitHub Release
+        if: inputs.dry_run == false
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.next }}
+          name: "Tracelet ${{ steps.version.outputs.next }}"
+          generate_release_notes: true
+          files: |
+            ${{ env.ARTIFACT_TAR }}
+            ${{ env.ARTIFACT_SHA }}
+
+      - name: Release summary
+        if: inputs.dry_run == false
+        run: |
+          echo ""
+          echo "Tracelet Release Complete"
+          echo "-------------------------"
+          echo ""
+          echo "Previous version: ${{ steps.version.outputs.current }}"
+          echo "New version:      ${{ steps.version.outputs.next }}"
+          echo "Release type:     ${{ inputs.release_type }}"
+          echo "Tag:              ${{ steps.version.outputs.next }}"
+          echo "Release URL:      ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.next }}"
+          echo ""
+          echo "Published artifacts:"
+          echo "  ${ARTIFACT_NAME}.tar.gz"
+          echo "  ${ARTIFACT_NAME}.tar.gz.sha256"
