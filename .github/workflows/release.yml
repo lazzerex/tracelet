@@ -180,12 +180,85 @@ jobs:
           fi
           echo "Tag verified: ${{ steps.version.outputs.next }} -> $TAG_COMMIT"
 
+      - name: Generate release body
+        if: ${{ inputs.dry_run == false }}
+        id: body
+        run: |
+          VERSION="${{ steps.version.outputs.next }}"
+          PREV="${{ steps.version.outputs.current }}"
+          SHA256=$(cat "${{ env.ARTIFACT_SHA }}" | awk '{print $1}')
+          ARTIFACT_NAME="${{ env.ARTIFACT_NAME }}"
+
+          # Collect commits since previous tag
+          if [ "$PREV" != "v0.0.0" ]; then
+            CHANGES=$(git log "${PREV}..HEAD" --pretty=format:"- %s" --no-merges)
+          else
+            CHANGES=$(git log --pretty=format:"- %s" --no-merges -20)
+          fi
+
+          cat > release-body.md << EOF
+          ## What's New
+
+          ${CHANGES}
+
+          ## Installation
+
+          Download the tarball for your platform and verify the checksum:
+
+          \`\`\`bash
+          # Download
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/${ARTIFACT_NAME}.tar.gz
+
+          # Verify checksum
+          sha256sum -c ${ARTIFACT_NAME}.tar.gz.sha256
+
+          # Extract and install
+          tar xzf ${ARTIFACT_NAME}.tar.gz
+          sudo mv ${ARTIFACT_NAME}/tracelet /usr/local/bin/
+          \`\`\`
+
+          ## Checksum (SHA-256)
+
+          \`\`\`
+          ${SHA256}  ${ARTIFACT_NAME}.tar.gz
+          \`\`\`
+
+          ## Platform
+
+          - **OS:** Linux (x86_64)
+          - **Kernel:** 5.8+ (BTF and tracepoint support required)
+          - **Dependencies:** None (statically linked against libbpf)
+
+          ## Quick Start
+
+          \`\`\`bash
+          # Trace process execution
+          sudo tracelet exec
+
+          # Live TUI dashboard
+          sudo tracelet dashboard
+
+          # Monitor TCP connections
+          sudo tracelet tcp
+          \`\`\`
+
+          **Note:** Tracelet requires root or \`CAP_BPF\` capabilities for eBPF access.
+          EOF
+
+          # Write multiline output using delimiter
+          {
+            echo "content<<RELEASE_BODY_EOF"
+            cat release-body.md
+            echo "RELEASE_BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         if: ${{ inputs.dry_run == false }}
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.version.outputs.next }}
           name: "Tracelet ${{ steps.version.outputs.next }}"
+          body: ${{ steps.body.outputs.content }}
           generate_release_notes: true
           files: |
             ${{ env.ARTIFACT_TAR }}
