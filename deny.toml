@@ -2,6 +2,7 @@
 # https://embarkstudios.github.io/cargo-deny/
 
 [licenses]
+unlicensed = "warn"
 allow = [
     "MIT",
     "Apache-2.0",
