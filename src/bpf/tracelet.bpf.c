@@ -130,11 +130,11 @@ static void submit_tcp(struct trace_event_raw_inet_sock_set_state *ctx, __u8 typ
     ev->sport = ctx->sport;
     ev->dport = ctx->dport;
     if (ctx->family == AF_INET) {
-        __builtin_memcpy(ev->saddr, ctx->saddr, 4);
-        __builtin_memcpy(ev->daddr, ctx->daddr, 4);
+        bpf_probe_read_kernel(ev->saddr, 4, ctx->saddr);
+        bpf_probe_read_kernel(ev->daddr, 4, ctx->daddr);
     } else {
-        __builtin_memcpy(ev->saddr, ctx->saddr_v6, 16);
-        __builtin_memcpy(ev->daddr, ctx->daddr_v6, 16);
+        bpf_probe_read_kernel(ev->saddr, 16, ctx->saddr_v6);
+        bpf_probe_read_kernel(ev->daddr, 16, ctx->daddr_v6);
     }
     bpf_ringbuf_submit(ev, 0);
 }
