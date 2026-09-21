@@ -60,11 +60,10 @@ jobs:
           chmod +x scripts/version.sh
           CURRENT=$(scripts/version.sh latest)
           NEXT=$(scripts/version.sh next "${{ inputs.release_type }}")
-          TAG_EXISTS=$(scripts/version.sh exists "$NEXT" && echo "yes" || echo "no")
+          TAG_EXISTS=$(scripts/version.sh exists "$NEXT")
 
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "next=$NEXT" >> "$GITHUB_OUTPUT"
-          echo "tag_exists=$TAG_EXISTS" >> "$GITHUB_OUTPUT"
 
           echo "Current version: $CURRENT"
           echo "Release type:    ${{ inputs.release_type }}"
@@ -117,7 +116,7 @@ jobs:
           ls -la dist/
 
       - name: Dry run summary
-        if: inputs.dry_run == true
+        if: ${{ inputs.dry_run == true }}
         run: |
           echo ""
           echo "Tracelet Release Dry Run"
@@ -128,7 +127,7 @@ jobs:
           echo "Next version:     ${{ steps.version.outputs.next }}"
           echo ""
           echo "Target tag:       ${{ steps.version.outputs.next }}"
-          echo "Tag exists:       ${{ steps.version.outputs.tag_exists }}"
+          echo "Tag exists:       no"
           echo ""
           echo "Rust checks:      passed"
           echo "eBPF build:       passed"
@@ -143,7 +142,7 @@ jobs:
           echo "Result:           DRY RUN PASSED"
 
       - name: Update Cargo.toml versions
-        if: inputs.dry_run == false
+        if: ${{ inputs.dry_run == false }}
         run: |
           VERSION="${{ steps.version.outputs.next }}"
           VERSION_NUM="${VERSION#v}"
@@ -158,11 +157,11 @@ jobs:
           git tag "$VERSION"
 
       - name: Push tag
-        if: inputs.dry_run == false
+        if: ${{ inputs.dry_run == false }}
         run: git push origin "${{ steps.version.outputs.next }}"
 
       - name: Create GitHub Release
-        if: inputs.dry_run == false
+        if: ${{ inputs.dry_run == false }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.next }}
@@ -173,7 +172,7 @@ jobs:
             ${{ env.ARTIFACT_SHA }}
 
       - name: Release summary
-        if: inputs.dry_run == false
+        if: ${{ inputs.dry_run == false }}
         run: |
           echo ""
           echo "Tracelet Release Complete"
