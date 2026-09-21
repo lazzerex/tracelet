@@ -31,6 +31,8 @@ src/
   open.rs            open collector
   tcp.rs             tcp collector
   latency.rs         latency collector
+  collector.rs       dashboard collector thread and shared state
+  dashboard.rs       ratatui dashboard
   hist.rs            histogram to percentile math
   filter.rs          filter parsing and kernel filter configuration
   stats.rs           kernel drop counter reporting
@@ -41,6 +43,18 @@ build.rs             generates the libbpf-rs skeleton at build time
 ```
 
 Pipeline:
+
+```
+Linux activity (exec, open, TCP state change, syscall)
+  -> kernel hook (tracepoint)
+  -> eBPF program (C): filter, build fixed-size event
+  -> BPF ring buffer (events) or BPF maps (latency counters)
+  -> Rust collector (libbpf-rs): poll, size-check, decode, validate
+  -> aggregation (latency percentiles / dashboard counters)
+  -> CLI stdout or ratatui TUI
+```
+
+`tracelet exec`, `open`, and `tcp` all follow this shape:
 
 ```
 kernel hook (tracepoint/kprobe)
@@ -79,7 +93,7 @@ kernel hooks (exec + open + tcp)
 | `tracelet open`     | file open events             | working       |
 | `tracelet tcp`      | TCP connection events        | working       |
 | `tracelet latency`  | latency statistics           | working       |
-| `tracelet top`      | live top-style view          | phase 8       |
+| `tracelet top`      | live top-style view          | not implemented (use `dashboard`) |
 | `tracelet dashboard`| terminal dashboard           | working       |
 
 ## How exec tracing works
@@ -304,7 +318,9 @@ baseline rows of the same report on the same boot.
 
 ## Building
 
-Requirements: Rust (cargo), clang, libelf headers, bpftool.
+Requirements: Rust (cargo), clang, libelf headers, bpftool. Kernel 5.8
+or newer for BPF ring buffers (5.10+ with BTF is the tested target; the
+load fails with the verifier's message on anything older).
 
 `cargo build` compiles the eBPF C programs in `src/bpf` with clang
 (via libbpf-cargo), generates the libbpf-rs skeleton, and builds the binary.
@@ -313,6 +329,40 @@ Requirements: Rust (cargo), clang, libelf headers, bpftool.
 cargo build
 cargo test
 ```
+
+## Running
+
+Loading eBPF programs needs `CAP_BPF`, `CAP_PERFMON`, and access to
+`/sys/kernel/tracing` (raise `RLIMIT_MEMLOCK` on kernels before 5.11).
+Running as root covers all of this; on unprivileged systems the load
+fails with the libbpf error (`EACCES`/`EPERM`) instead of a partial run.
+
+## Verifying
+
+`bench/check.sh` runs the whole verification pass in one command.
+
+```
+./bench/check.sh                  # environment, build, tests, CLI (no root)
+sudo ./bench/check.sh --no-build  # adds the live eBPF checks
+./bench/check.sh --release        # check the release profile instead
+```
+
+The unprivileged pass checks the platform, kernel BTF, required tools and
+tracepoints, builds the project, runs the test suite, and exercises the CLI
+surface (every subcommand, the enum values for `--event`/`--syscall`, and
+that unknown subcommands are rejected). The root pass additionally starts
+each collector, drives `bench/workload.sh` against it, and asserts what was
+actually captured: `exec` and `open` event counts, `tcp` CONNECT/ACCEPT
+pairs, a non-zero `latency` read count, that `--comm` filtering drops every
+non-matching event in the kernel, and that the dashboard renders its panes
+with a live collector.
+
+If a collector cannot start (no permission, missing tracepoint, verifier
+rejection), the check prints the captured log so the real error is visible
+instead of a bare timeout. `--no-build` skips cargo so running the script
+under sudo does not create root-owned files in `target/`. Logs are kept
+automatically whenever something fails, and the exit status is non-zero if
+any check failed.
 
 ## Usage
 
