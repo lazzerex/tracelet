@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["\\.github/workflows/release\\.yml$"],
+      "matchStrings": ["toolchain:\\s*\"(?<currentValue>\\d+\\.\\d+(?:\\.\\d+)?)\""],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "rust-lang/rust"
+    }
+  ]
+}
