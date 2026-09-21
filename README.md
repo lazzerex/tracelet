@@ -4,8 +4,8 @@
 
 **Linux observability in Rust + eBPF**
 
-Watch kernel and system activity — process execution, file opens,
-TCP connections, latency — through a CLI or live TUI dashboard.
+Watch kernel and system activity, from process execution and file opens
+to TCP connections and latency, through a CLI or live TUI dashboard.
 
 [![CI](https://github.com/lazzerex/tracelet/actions/workflows/ci.yml/badge.svg)](https://github.com/lazzerex/tracelet/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/lazzerex/tracelet?style=flat-square)](https://github.com/lazzerex/tracelet/releases/latest)
@@ -527,7 +527,7 @@ sha256sum -c tracelet-v0.2.0-linux-x86_64.tar.gz.sha256
 ### CI workflow
 
 A separate CI workflow runs automatically on every push and pull request
-to `main`. It checks formatting, linting, tests, and builds. The release
+to `master`. It checks formatting, linting, tests, and builds. The release
 workflow performs the same checks before publishing.
 
 ### Requirements
