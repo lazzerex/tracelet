@@ -113,7 +113,7 @@ jobs:
           echo "ARTIFACT_SHA=dist/${ARTIFACT}.tar.gz.sha256" >> "$GITHUB_ENV"
 
           echo "Built artifacts:"
-          ls -la dist/
+          ls -la .
 
       - name: Dry run summary
         if: ${{ inputs.dry_run == true }}
