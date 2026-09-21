@@ -147,8 +147,8 @@ jobs:
           VERSION="${{ steps.version.outputs.next }}"
           VERSION_NUM="${VERSION#v}"
 
-          sed -i "0,/^version = \".*\"/s/^version = \".*\"/version = \"${VERSION_NUM}\"/" Cargo.toml
-          sed -i "0,/^version = \".*\"/s/^version = \".*\"/version = \"${VERSION_NUM}\"/" tracelet-common/Cargo.toml
+          sed -i 's/^version = ".*"/version = "'"$VERSION_NUM"'"/' Cargo.toml
+          sed -i 's/^version = ".*"/version = "'"$VERSION_NUM"'"/' tracelet-common/Cargo.toml
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
