@@ -1,8 +1,39 @@
+<div align="center">
+
 # Tracelet
 
-Tracelet is an educational Linux observability tool that watches kernel and
-system activity using Rust in userspace and C/eBPF for kernel-side
-instrumentation.
+**Linux observability in Rust + eBPF**
+
+Watch kernel and system activity — process execution, file opens,
+TCP connections, latency — through a CLI or live TUI dashboard.
+
+[![CI](https://github.com/lazzerex/tracelet/actions/workflows/ci.yml/badge.svg)](https://github.com/lazzerex/tracelet/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/lazzerex/tracelet?style=flat-square)](https://github.com/lazzerex/tracelet/releases/latest)
+[![Rust](https://img.shields.io/badge/Rust-2021-blue?style=flat-square)](https://www.rust-lang.org/)
+[![eBPF](https://img.shields.io/badge/eBPF-C-green?style=flat-square)](https://ebpf.io/)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20x86__64-orange?style=flat-square)]()
+
+<br>
+
+```
+tracelet exec      tracelet open      tracelet tcp
+tracelet latency   tracelet dashboard
+```
+
+</div>
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Role |
+|-------|-----------|------|
+| Kernel | **eBPF** (C) | Tracepoints and kprobes for zero-overhead event collection |
+| Build | **libbpf-cargo** / **clang** | Compiles eBPF C → BPF bytecode, generates Rust skeleton |
+| Userspace | **Rust** (libbpf-rs) | Loads BPF objects, polls ring buffers, decodes events |
+| CLI | **clap** | Argument parsing and subcommand dispatch |
+| TUI | **ratatui** + **crossterm** | Real-time terminal dashboard with streaming event view |
+| Types | **tracelet-common** | Shared event structs and filter config between eBPF and Rust |
 
 ## Why Rust + C/eBPF?
 
