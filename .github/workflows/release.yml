@@ -18,7 +18,7 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,8 +26,10 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
@@ -39,12 +41,13 @@ jobs:
             linux-headers-generic python3
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
+          toolchain: "1.98.0"
           components: rustfmt, clippy
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
             ~/.cargo/registry
@@ -160,9 +163,20 @@ jobs:
         if: ${{ inputs.dry_run == false }}
         run: git push origin "${{ steps.version.outputs.next }}"
 
+      - name: Verify tag points to HEAD
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          TAG_COMMIT=$(git rev-parse "${{ steps.version.outputs.next }}")
+          HEAD_COMMIT=$(git rev-parse HEAD)
+          if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
+            echo "::error::Tag ${{ steps.version.outputs.next }} points to $TAG_COMMIT, expected $HEAD_COMMIT"
+            exit 1
+          fi
+          echo "Tag verified: ${{ steps.version.outputs.next }} -> $TAG_COMMIT"
+
       - name: Create GitHub Release
         if: ${{ inputs.dry_run == false }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.version.outputs.next }}
           name: "Tracelet ${{ steps.version.outputs.next }}"
