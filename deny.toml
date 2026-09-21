@@ -13,7 +13,7 @@ allow = [
     "Unicode-DFS-2016",
     "Zlib",
     "0BSD",
-    "UNLICENSED",
+    "Unlicense",
 ]
 
 [bans]
