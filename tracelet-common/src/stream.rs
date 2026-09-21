@@ -1,4 +1,7 @@
-use crate::{ExecEvent, OpenEvent, TcpEvent, AF_INET, AF_INET6};
+use crate::event::{printable, read_event};
+use crate::{
+    ExecEvent, OpenEvent, TcpEvent, AF_INET, AF_INET6, TCP_EVENT_CLOSE, TCP_EVENT_CONNECT,
+};
 
 pub const STREAM_MAX: usize = 512;
 
@@ -95,18 +98,7 @@ fn placeholders() -> TcpEvent {
     }
 }
 
-pub fn printable(buf: &[u8]) -> bool {
-    buf.iter().all(|&b| b == 0 || (0x20..0x7f).contains(&b))
-}
-
-fn read_event<E: Copy>(data: &[u8]) -> Option<E> {
-    if data.len() != std::mem::size_of::<E>() {
-        return None;
-    }
-    Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const E) })
-}
-
-fn decode_tcp(data: &[u8]) -> Option<TcpEvent> {
+pub fn decode_tcp(data: &[u8]) -> Option<TcpEvent> {
     let ev = read_event::<TcpEvent>(data)?;
     if !printable(&ev.comm) {
         return None;
@@ -114,7 +106,7 @@ fn decode_tcp(data: &[u8]) -> Option<TcpEvent> {
     if ev.family != AF_INET && ev.family != AF_INET6 {
         return None;
     }
-    if !(1..=3).contains(&ev.event_type) {
+    if !(TCP_EVENT_CONNECT..=TCP_EVENT_CLOSE).contains(&ev.event_type) {
         return None;
     }
     Some(ev)
