@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
@@ -8,6 +8,7 @@ use libbpf_rs::RingBufferBuilder;
 use tracelet_common::stream::{decode_stream, DashboardEvent, STREAM_MAX};
 
 use crate::error::TraceletError;
+use crate::events;
 use crate::filter::{self, FilterArgs};
 use crate::hist::Stats;
 use crate::TraceletSkelBuilder;
@@ -101,7 +102,7 @@ fn wall_time(data: &[u8], boot_offset_ns: u64) -> String {
 pub fn spawn(args: &FilterArgs) -> Result<Arc<Mutex<Shared>>, TraceletError> {
     let config = filter::config(args, tracelet_common::FILTER_EVENT_ALL)?;
     let shared = Arc::new(Mutex::new(Shared::default()));
-    shared.lock().unwrap().started = Some(std::time::Instant::now());
+    init_shared(&shared);
 
     let thread_shared = Arc::clone(&shared);
     thread::spawn(move || {
@@ -137,7 +138,7 @@ fn collect(
     }
     let _links = links;
 
-    let boot_offset_ns = crate::events::boot_time_ns();
+    let boot_offset_ns = events::boot_time_ns();
 
     let mut rb_builder = RingBufferBuilder::new();
     rb_builder.add(&skel.maps.events, |data| {
@@ -145,6 +146,8 @@ fn collect(
             let wall = wall_time(data, boot_offset_ns);
             if let Ok(mut guard) = shared.lock() {
                 guard.push(&ev, wall);
+            } else {
+                eprintln!("warning: shared state poisoned; event ignored");
             }
         }
         0
@@ -162,6 +165,89 @@ fn collect(
         }
         let _ = crate::stats::warn_on_drops(&skel.maps.drops, &mut drops_seen);
         refresh_latency(&skel, &shared);
+    }
+}
+
+fn refresh_latency(skel: &crate::TraceletSkel<'_>, shared: &Arc<Mutex<Shared>>) {
+    let mut histograms = Vec::new();
+    for syscall in 0..tracelet_common::SYSCALL_COUNT {
+        let mut slots = vec![0u64; tracelet_common::HIST_SLOTS as usize];
+        for (slot, count) in slots.iter_mut().enumerate() {
+            let key = (syscall * tracelet_common::HIST_SLOTS + slot as u32).to_ne_bytes();
+            if let Ok(Some(value)) = skel
+                .maps
+                .latency_hist
+                .lookup(&key, libbpf_rs::MapFlags::ANY)
+            {
+                if value.len() == 8 {
+                    let mut raw = [0u8; 8];
+                    raw.copy_from_slice(&value[..8]);
+                    *count = u64::from_ne_bytes(raw);
+                }
+            }
+        }
+        histograms.push(slots);
+    }
+    if let Ok(mut guard) = shared.lock() {
+        guard.latency = histograms;
+    } else {
+        eprintln!("warning: shared state poisoned; latency snapshot skipped");
+    }
+}
+
+pub fn collector_guard(shared: &Arc<Mutex<Shared>>) -> MutexGuard<'_, Shared> {
+    shared.lock().unwrap_or_else(|err| err.into_inner())
+}
+
+pub fn init_shared(shared: &Arc<Mutex<Shared>>) {
+    let mut guard = collector_guard(shared);
+    if guard.started.is_none() {
+        guard.started = Some(std::time::Instant::now());
+    }
+}
+
+impl Snapshot {
+    pub fn take(shared: &Shared) -> Snapshot {
+        let secs = shared
+            .started
+            .map(|t| t.elapsed().as_secs())
+            .unwrap_or(0)
+            .max(1);
+        let mut top: Vec<TopRow> = shared
+            .processes
+            .iter()
+            .map(|(pid, (process, count))| TopRow {
+                process: process.clone(),
+                pid: *pid,
+                count: *count,
+            })
+            .collect();
+        top.sort_by(|a, b| b.count.cmp(&a.count).then(b.pid.cmp(&a.pid)));
+        top.truncate(10);
+        let mut distribution: Vec<(String, u64)> = shared
+            .by_event
+            .iter()
+            .map(|(name, count)| (name.clone(), *count))
+            .collect();
+        distribution.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let latency = tracelet_common::SYSCALL_NAMES
+            .iter()
+            .zip(shared.latency.iter())
+            .map(|(name, slots)| (*name, crate::hist::summarize(slots)))
+            .collect();
+        Snapshot {
+            overview: Overview {
+                rate: shared.total / secs,
+                processes: shared.processes.len(),
+                tcp_total: shared.tcp_total,
+                file_total: shared.file_total,
+                dropped: shared.dropped,
+            },
+            stream: shared.recent.iter().rev().cloned().collect(),
+            top,
+            distribution,
+            latency,
+        }
     }
 }
 
@@ -232,8 +318,10 @@ mod tests {
 
     #[test]
     fn rate_divides_total_by_elapsed_seconds() {
-        let mut shared = Shared::default();
-        shared.started = Some(std::time::Instant::now());
+        let mut shared = Shared {
+            started: Some(std::time::Instant::now()),
+            ..Shared::default()
+        };
         shared.push(&file_event(FILE_EVENT_EXEC, 1, b"x"), "t".into());
         shared.push(&file_event(FILE_EVENT_EXEC, 2, b"x"), "t".into());
         shared.push(&tcp_event(3, b"x"), "t".into());
@@ -250,75 +338,5 @@ mod tests {
         assert_eq!(snap.overview.processes, 1);
         assert_eq!(snap.top[0].process, "new");
         assert_eq!(snap.top[0].count, 2);
-    }
-}
-
-fn refresh_latency(skel: &crate::TraceletSkel<'_>, shared: &Arc<Mutex<Shared>>) {
-    let mut histograms = Vec::new();
-    for syscall in 0..tracelet_common::SYSCALL_COUNT {
-        let mut slots = vec![0u64; tracelet_common::HIST_SLOTS as usize];
-        for (slot, count) in slots.iter_mut().enumerate() {
-            let key = (syscall * tracelet_common::HIST_SLOTS + slot as u32).to_ne_bytes();
-            if let Ok(Some(value)) = skel
-                .maps
-                .latency_hist
-                .lookup(&key, libbpf_rs::MapFlags::ANY)
-            {
-                if value.len() == 8 {
-                    let mut raw = [0u8; 8];
-                    raw.copy_from_slice(&value[..8]);
-                    *count = u64::from_ne_bytes(raw);
-                }
-            }
-        }
-        histograms.push(slots);
-    }
-    if let Ok(mut guard) = shared.lock() {
-        guard.latency = histograms;
-    }
-}
-
-impl Snapshot {
-    pub fn take(shared: &Shared) -> Snapshot {
-        let secs = shared
-            .started
-            .map(|t| t.elapsed().as_secs())
-            .unwrap_or(0)
-            .max(1);
-        let mut top: Vec<TopRow> = shared
-            .processes
-            .iter()
-            .map(|(pid, (process, count))| TopRow {
-                process: process.clone(),
-                pid: *pid,
-                count: *count,
-            })
-            .collect();
-        top.sort_by(|a, b| b.count.cmp(&a.count).then(b.pid.cmp(&a.pid)));
-        top.truncate(10);
-        let mut distribution: Vec<(String, u64)> = shared
-            .by_event
-            .iter()
-            .map(|(name, count)| (name.clone(), *count))
-            .collect();
-        distribution.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        let latency = tracelet_common::SYSCALL_NAMES
-            .iter()
-            .zip(shared.latency.iter())
-            .map(|(name, slots)| (*name, crate::hist::summarize(slots)))
-            .collect();
-        Snapshot {
-            overview: Overview {
-                rate: shared.total / secs,
-                processes: shared.processes.len(),
-                tcp_total: shared.tcp_total,
-                file_total: shared.file_total,
-                dropped: shared.dropped,
-            },
-            stream: shared.recent.iter().rev().cloned().collect(),
-            top,
-            distribution,
-            latency,
-        }
     }
 }
