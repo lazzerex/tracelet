@@ -34,7 +34,7 @@ tracelet latency   tracelet dashboard
 | [**Exec Tracing**](#how-exec-tracing-works) | [**Building**](#building) |
 | [**Open Tracing**](#how-open-tracing-works) | [**Running**](#running) |
 | [**TCP Tracing**](#how-tcp-tracing-works) | [**Dashboard**](#dashboard) |
-| [**Latency**](#how-latency-works) | [**Releases**](#releases) |
+| [**Latency**](#how-latency-works) | [**Installation**](#installation) |
 
 ---
 
@@ -470,98 +470,19 @@ buffer and updating aggregates, so nothing is lost while paused.
   re-renders newest-first on every refresh; the buffer never holds
   more than 512 rows, so scrolling stops there.
 
-## Releases
+## Installation
 
-Tracelet uses [semantic versioning](https://semver.org/) with a manual
-GitHub Actions release workflow. Tags follow the format `v0.1.0`.
-
-### Version calculation
-
-The release workflow finds the latest `v*` tag and bumps it:
-
-- `patch`: `v0.1.0` -> `v0.1.1`
-- `minor`: `v0.1.0` -> `v0.2.0`
-- `major`: `v0.1.0` -> `v1.0.0`
-
-If no tag exists, it starts from `v0.0.0` and calculates accordingly.
-
-### Dry run
-
-Dry runs validate the full release pipeline without publishing anything.
-
-Go to **Actions > Release > Run workflow** and set:
-
-```
-Release type: patch
-Dry run: true
-```
-
-A dry run will:
-
-1. Calculate the next version
-2. Check format, lint, tests, build
-3. Build release artifacts
-4. Generate checksums
-5. Print a summary
-
-It will **not** create tags, push code, or publish a GitHub Release.
-
-### Real release
-
-Go to **Actions > Release > Run workflow** and set:
-
-```
-Release type: minor
-Dry run: false
-```
-
-This will:
-
-1. Validate everything a dry run does
-2. Update `Cargo.toml` versions in a release commit
-3. Create and push a version tag
-4. Create a GitHub Release with auto-generated notes
-5. Attach release artifacts
-
-### Artifacts
-
-Each release produces:
-
-```
-tracelet-v0.2.0-linux-x86_64.tar.gz
-tracelet-v0.2.0-linux-x86_64.tar.gz.sha256
-```
-
-Verify checksums:
+Download the latest release from the [GitHub Releases page](https://github.com/lazzerex/tracelet/releases/latest):
 
 ```bash
+# download and extract
+tar -xzf tracelet-v0.2.0-linux-x86_64.tar.gz
+
+# verify checksum
 sha256sum -c tracelet-v0.2.0-linux-x86_64.tar.gz.sha256
+
+# move to PATH
+sudo mv tracelet /usr/local/bin/
 ```
 
-### CI workflow
-
-A separate CI workflow runs automatically on every push and pull request
-to `master`. It checks formatting, linting, tests, and builds. The release
-workflow performs the same checks before publishing.
-
-### Requirements
-
-- Linux x86_64 runner (GitHub-hosted Ubuntu)
-- clang, llvm, libbpf-dev, kernel headers for eBPF compilation
-- Rust stable toolchain
-
-### Known limitations
-
-- eBPF runtime tests require root/CAP_BPF and are not run in CI
-- CI validates compilation and unit tests only
-- Live tracing tests require a kernel with BTF and tracepoint support
-
-### Recovery from failed releases
-
-If the workflow fails after pushing the tag but before creating the
-GitHub Release:
-
-1. Delete the tag locally: `git tag -d v0.2.0`
-2. Delete the tag remotely: `git push origin --delete v0.2.0`
-3. Reset the release commit if needed: `git reset HEAD~1`
-4. Fix the issue and re-run the release
+Tracelet requires Linux x86_64 with kernel ≥ 5.8 (BTF + tracepoint support).
