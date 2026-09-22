@@ -375,6 +375,22 @@ cargo build
 cargo test
 ```
 
+### Regenerating vmlinux.h
+
+`src/bpf/vmlinux.h` is auto-generated and checked into the repository so that
+builds are reproducible without the exact kernel headers.  You should **not**
+hand-edit this file.
+
+If the eBPF programs reference a struct or field that is missing from the
+committed copy, regenerate it from your running kernel:
+
+```
+bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
+```
+
+Commit the updated file alongside your eBPF changes.  The committed baseline
+is kernel **7.0.0-31-generic**.
+
 ## Running
 
 Loading eBPF programs needs `CAP_BPF`, `CAP_PERFMON`, and access to
