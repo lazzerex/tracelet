@@ -24,6 +24,20 @@ tracelet latency   tracelet dashboard
 
 ---
 
+## Contents
+
+| | |
+|---|---|
+| [**Tech Stack**](#tech-stack) | [**Commands**](#commands) |
+| [**Why Rust + C/eBPF?**](#why-rust--cebpf) | [**Filtering**](#filtering) |
+| [**Architecture**](#architecture) | [**Measuring Overhead**](#measuring-overhead) |
+| [**Exec Tracing**](#how-exec-tracing-works) | [**Building**](#building) |
+| [**Open Tracing**](#how-open-tracing-works) | [**Running**](#running) |
+| [**TCP Tracing**](#how-tcp-tracing-works) | [**Dashboard**](#dashboard) |
+| [**Latency**](#how-latency-works) | [**Releases**](#releases) |
+
+---
+
 ## Tech Stack
 
 | Layer | Technology | Role |
