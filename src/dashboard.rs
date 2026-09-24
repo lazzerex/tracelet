@@ -284,6 +284,12 @@ fn draw(f: &mut Frame<'_>, snap: &Snapshot, ui: &Ui) {
 }
 
 pub fn run(args: &FilterArgs) -> Result<(), TraceletError> {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        ratatui::restore();
+        default_hook(info);
+    }));
+
     let shared = collector::spawn(args)?;
     let mut terminal = ratatui::init();
     let result = event_loop(&mut terminal, &shared);
@@ -298,6 +304,9 @@ fn event_loop(
     let mut ui = Ui::new();
     let mut last = Instant::now() - Duration::from_secs(2);
     loop {
+        if !crate::RUNNING.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(());
+        }
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 let action = key_action(key);
