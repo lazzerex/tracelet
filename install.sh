@@ -14,7 +14,7 @@ esac
 
 usage() {
     echo "usage: $0 [VERSION]" >&2
-    echo "  VERSION  e.g. v0.2.0 (default: latest)" >&2
+    echo "  VERSION  e.g. v1.0.0 (default: latest)" >&2
     exit 2
 }
 
