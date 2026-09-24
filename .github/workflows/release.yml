@@ -98,6 +98,32 @@ jobs:
             ./target/release/tracelet "$cmd" --help > /dev/null
           done
 
+      - name: Smoke test
+        run: |
+          ./target/release/tracelet --version
+          ./target/release/tracelet --help
+          OUTPUT=$(./target/release/tracelet exec --count 1 --duration 2s --json 2>/dev/null || true)
+          if [ -n "$OUTPUT" ]; then
+            echo "$OUTPUT" | python3 -m json.tool > /dev/null
+            echo "JSON smoke test passed"
+          else
+            echo "No events captured (expected in CI without BPF)"
+          fi
+
+      - name: Static linking check
+        run: |
+          if command -v ldd >/dev/null 2>&1; then
+            if ldd ./target/release/tracelet 2>&1 | grep -q "not a dynamic"; then
+              echo "Binary is statically linked"
+            else
+              echo "Binary is dynamically linked:"
+              ldd ./target/release/tracelet
+              echo "::warning::Binary is not fully statically linked"
+            fi
+          else
+            echo "ldd not available, skipping static link check"
+          fi
+
       - name: Build release artifacts
         run: |
           VERSION="${{ steps.version.outputs.next }}"
