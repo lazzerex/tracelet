@@ -102,14 +102,15 @@ fn wall_time(data: &[u8], boot_offset_ns: u64) -> String {
     crate::events::clock_time(boot_offset_ns.wrapping_add(u64::from_ne_bytes(raw)))
 }
 
-pub fn spawn(args: &FilterArgs) -> Result<Arc<Mutex<Shared>>, TraceletError> {
+pub fn spawn(args: &FilterArgs, buffer_mb: u32) -> Result<Arc<Mutex<Shared>>, TraceletError> {
+    crate::kernel::check_prereqs("dashboard")?;
     let config = filter::config(args, tracelet_common::FILTER_EVENT_ALL)?;
     let shared = Arc::new(Mutex::new(Shared::default()));
     init_shared(&shared);
 
     let thread_shared = Arc::clone(&shared);
     thread::spawn(move || {
-        if let Err(err) = collect(&config, thread_shared) {
+        if let Err(err) = collect(&config, buffer_mb, thread_shared) {
             eprintln!("collector stopped: {err}");
         }
     });
@@ -118,11 +119,18 @@ pub fn spawn(args: &FilterArgs) -> Result<Arc<Mutex<Shared>>, TraceletError> {
 
 fn collect(
     config: &tracelet_common::FilterConfig,
+    buffer_mb: u32,
     shared: Arc<Mutex<Shared>>,
 ) -> Result<(), TraceletError> {
     let skel_builder = TraceletSkelBuilder::default();
     let mut object = std::mem::MaybeUninit::uninit();
-    let open_skel = skel_builder.open(&mut object)?;
+    let mut open_skel = skel_builder.open(&mut object)?;
+    if buffer_mb != 16 {
+        open_skel
+            .maps
+            .events
+            .set_max_entries(buffer_mb * 1024 * 1024)?;
+    }
     let skel = open_skel.load()?;
     filter::apply_map(&skel.maps.filter_map, config)?;
 
@@ -154,13 +162,13 @@ fn collect(
     })?;
     let rb = rb_builder.build()?;
 
-    let mut drops_seen = 0u64;
+    let mut drops_seen = [0u64; 2];
     while crate::RUNNING.load(std::sync::atomic::Ordering::SeqCst) {
         rb.poll(Duration::from_millis(200))?;
-        let current = crate::stats::dropped_events(&skel.maps.drops).unwrap_or(0);
+        let total = drops_seen[0] + drops_seen[1];
         if let Ok(mut guard) = shared.lock() {
-            if current > guard.dropped {
-                guard.dropped = current;
+            if total > guard.dropped {
+                guard.dropped = total;
             }
         }
         let _ = crate::stats::warn_on_drops(&skel.maps.drops, &mut drops_seen);
@@ -170,11 +178,12 @@ fn collect(
 }
 
 fn refresh_latency(skel: &crate::TraceletSkel<'_>, shared: &Arc<Mutex<Shared>>) {
+    use tracelet_common::LATENCY_SLOTS;
     let mut histograms = Vec::new();
     for syscall in 0..tracelet_common::SYSCALL_COUNT {
-        let mut slots = vec![0u64; tracelet_common::HIST_SLOTS as usize];
+        let mut slots = vec![0u64; LATENCY_SLOTS as usize];
         for (slot, count) in slots.iter_mut().enumerate() {
-            let key = (syscall * tracelet_common::HIST_SLOTS + slot as u32).to_ne_bytes();
+            let key = (syscall * LATENCY_SLOTS + slot as u32).to_ne_bytes();
             if let Ok(Some(value)) = skel
                 .maps
                 .latency_hist
