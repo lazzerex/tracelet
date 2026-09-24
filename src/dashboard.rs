@@ -283,14 +283,14 @@ fn draw(f: &mut Frame<'_>, snap: &Snapshot, ui: &Ui) {
     );
 }
 
-pub fn run(args: &FilterArgs) -> Result<(), TraceletError> {
+pub fn run(args: &FilterArgs, buffer_mb: u32) -> Result<(), TraceletError> {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         ratatui::restore();
         default_hook(info);
     }));
 
-    let shared = collector::spawn(args)?;
+    let shared = collector::spawn(args, buffer_mb)?;
     let mut terminal = ratatui::init();
     let result = event_loop(&mut terminal, &shared);
     ratatui::restore();
