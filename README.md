@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/eBPF-C-49B34D?logo=ebpf&logoColor=white" alt="eBPF (C)" />
   <img src="https://img.shields.io/badge/libbpf-1.x-333333?logo=linux&logoColor=white" alt="libbpf" />
   <img src="https://img.shields.io/badge/clap-4.x-FF6C37?logo=clap&logoColor=white" alt="clap 4" />
-  <img src="https://img.shields.io/badge/ratatui-0.29-DC4A30?logo=ratatui&logoColor=white" alt="ratatui" />
+  <img src="https://img.shields.io/badge/ratatui-0.30-DC4A30?logo=ratatui&logoColor=white" alt="ratatui" />
   <img src="https://img.shields.io/badge/Platform-Linux%20x86__64-FCC624?logo=linux&logoColor=black" alt="Linux x86_64" />
 </p>
 
@@ -481,10 +481,9 @@ buffer and updating aggregates, so nothing is lost while paused.
 
 ### Implementation notes
 
-- **Event tagging**: exec and open events were indistinguishable on a
-  mixed stream (both 160 bytes), so both structs carry a `kind` field
-  set by the BPF program; the decoder checks it before trusting the
-  payload.
+- **Event tagging**: exec and open events carry different sizes (168 and
+  160 bytes respectively) and a `kind` field set by the BPF program;
+  the decoder checks it before trusting the payload.
 - **Snapshot model**: the collector mutates `Shared` under a mutex;
   `Snapshot::take` clones what it needs and the TUI drops the lock
   before rendering. The stream is newest-first and capped at 512 rows,
@@ -500,18 +499,32 @@ buffer and updating aggregates, so nothing is lost while paused.
 
 ## Installation
 
+### Quick install
+
+```bash
+curl -sSf https://raw.githubusercontent.com/lazzerex/tracelet/master/install.sh | bash
+```
+
+### Manual install
+
 Download the latest release from the [GitHub Releases page](https://github.com/lazzerex/tracelet/releases/latest):
 
 ```bash
-# download and extract (replace VERSION with the latest tag)
-curl -LO https://github.com/lazzerex/tracelet/releases/latest/download/tracelet-VERSION-linux-x86_64.tar.gz
-tar -xzf tracelet-VERSION-linux-x86_64.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/lazzerex/tracelet/releases/latest | grep '"tag_name"' | head -1 | sed 's/.*"\(.*\)".*/\1/')
 
-# verify checksum
-sha256sum -c tracelet-VERSION-linux-x86_64.tar.gz.sha256
-
-# move to PATH
-sudo mv tracelet-VERSION-linux-x86_64/tracelet /usr/local/bin/
+curl -LO "https://github.com/lazzerex/tracelet/releases/download/${VERSION}/tracelet-${VERSION}-linux-x86_64.tar.gz"
+tar -xzf "tracelet-${VERSION}-linux-x86_64.tar.gz"
+sha256sum -c "tracelet-${VERSION}-linux-x86_64.tar.gz.sha256"
+sudo mv "tracelet-${VERSION}-linux-x86_64/tracelet" /usr/local/bin/
 ```
 
-Tracelet requires Linux x86_64 with kernel ≥ 5.8 (BTF + tracepoint support).
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Compatibility](docs/COMPATIBILITY.md)
+- [Changelog](CHANGELOG.md)
+- [Roadmap](ROADMAP.md)
+
+## Requirements
+
+Tracelet requires Linux x86_64 with kernel >= 5.8 (BTF + tracepoint support).
