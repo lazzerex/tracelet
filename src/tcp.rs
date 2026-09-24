@@ -14,15 +14,23 @@ use crate::{OutputFormat, TraceletSkelBuilder, RUNNING};
 
 pub fn run(
     args: &FilterArgs,
+    buffer_mb: u32,
     event: Option<EventKind>,
     count: Option<u64>,
     duration: Option<Duration>,
     json: OutputFormat,
 ) -> Result<(), TraceletError> {
+    crate::kernel::check_prereqs("tcp")?;
     let config = filter::config(args, filter::event_mask(event))?;
     let skel_builder = TraceletSkelBuilder::default();
     let mut object = std::mem::MaybeUninit::uninit();
-    let open_skel = skel_builder.open(&mut object)?;
+    let mut open_skel = skel_builder.open(&mut object)?;
+    if buffer_mb != 16 {
+        open_skel
+            .maps
+            .events
+            .set_max_entries(buffer_mb * 1024 * 1024)?;
+    }
     let skel = open_skel.load()?;
     filter::apply_map(&skel.maps.filter_map, &config)?;
 
@@ -34,7 +42,8 @@ pub fn run(
     }
 
     let printed = Cell::new(0u64);
-    let mut dropped: u64 = 0;
+    let decode_rejects = Cell::new(0u64);
+    let mut drops_seen = [0u64; 2];
     let start = Instant::now();
     let mut buf = String::with_capacity(256);
 
@@ -70,6 +79,8 @@ pub fn run(
                 }
             }
             printed.set(printed.get() + 1);
+        } else {
+            decode_rejects.set(decode_rejects.get() + 1);
         }
         0
     })?;
@@ -77,9 +88,10 @@ pub fn run(
 
     while !crate::should_stop(printed.get(), count, start, duration) {
         rb.poll(Duration::from_millis(200))?;
-        warn_on_drops(&skel.maps.drops, &mut dropped)?;
+        warn_on_drops(&skel.maps.drops, &mut drops_seen)?;
     }
 
-    print_summary(printed.get(), dropped, start.elapsed());
+    let total_drops = drops_seen[0] + drops_seen[1] + decode_rejects.get();
+    print_summary(printed.get(), total_drops, start.elapsed());
     Ok(())
 }
