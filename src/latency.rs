@@ -1,4 +1,4 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use libbpf_rs::skel::{OpenSkel, SkelBuilder};
 use libbpf_rs::{Link, MapCore, MapFlags, MapMut};
@@ -8,8 +8,9 @@ use crate::error::TraceletError;
 use crate::events::clock_time;
 use crate::filter::{self, FilterArgs, SyscallKind};
 use crate::hist::{format_ns, summarize};
+use crate::output::{self, print_summary};
 use crate::stats::warn_on_drops;
-use crate::TraceletSkelBuilder;
+use crate::{OutputFormat, TraceletSkelBuilder};
 
 fn selected(syscall: Option<SyscallKind>) -> Vec<SyscallKind> {
     match syscall {
@@ -61,50 +62,73 @@ fn read_histogram(map: &MapMut<'_>) -> Result<Vec<Vec<u64>>, TraceletError> {
     Ok(histogram)
 }
 
-fn print_row(syscall: &str, count: &str, p50: &str, p95: &str, p99: &str) {
-    println!(
-        "{:<11} {:<11} {:<9} {:<9} {}",
-        syscall, count, p50, p95, p99
-    );
-}
-
-fn print_snapshot(histogram: &[Vec<u64>], kinds: &[SyscallKind]) {
-    let now_ns = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    println!("--- {} ---", clock_time(now_ns));
-    print_row("SYSCALL", "COUNT", "P50", "P95", "P99");
-    for kind in kinds {
-        let stats = summarize(&histogram[kind.index() as usize]);
-        print_row(
-            kind.name(),
-            &stats.count.to_string(),
-            &format_ns(stats.p50),
-            &format_ns(stats.p95),
-            &format_ns(stats.p99),
-        );
-    }
-}
-
-pub fn run(args: &FilterArgs, syscall: Option<SyscallKind>) -> Result<(), TraceletError> {
+pub fn run(
+    args: &FilterArgs,
+    syscall: Option<SyscallKind>,
+    duration: Option<Duration>,
+    json: OutputFormat,
+) -> Result<(), TraceletError> {
     let config = filter::config(args, tracelet_common::FILTER_EVENT_ALL)?;
     let skel_builder = TraceletSkelBuilder::default();
     let mut object = std::mem::MaybeUninit::uninit();
-    let mut open_skel = skel_builder.open(&mut object)?;
-    filter::apply(
-        &mut open_skel.maps.rodata_data.as_deref_mut().unwrap().filt,
-        &config,
-    );
+    let open_skel = skel_builder.open(&mut object)?;
     let skel = open_skel.load()?;
+    filter::apply_map(&skel.maps.filter_map, &config)?;
 
     let kinds = selected(syscall);
     let _links = attach(&skel, &kinds)?;
 
-    let mut dropped = 0;
-    loop {
-        print_snapshot(&read_histogram(&skel.maps.latency_hist)?, &kinds);
+    let mut dropped = 0u64;
+    let start = Instant::now();
+    let mut buf = String::with_capacity(512);
+
+    while !crate::should_stop(0, None, start, duration) {
+        let now_ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        let time = clock_time(now_ns);
+        let histogram = read_histogram(&skel.maps.latency_hist)?;
+
+        match json {
+            OutputFormat::Text => {
+                println!("--- {} ---", time);
+                let (h0, h1, h2, h3, h4) = ("SYSCALL", "COUNT", "P50", "P95", "P99");
+                println!("{:<11} {:<11} {:<9} {:<9} {}", h0, h1, h2, h3, h4);
+                for kind in &kinds {
+                    let stats = summarize(&histogram[kind.index() as usize]);
+                    println!(
+                        "{:<11} {:<11} {:<9} {:<9} {}",
+                        kind.name(),
+                        stats.count,
+                        format_ns(stats.p50),
+                        format_ns(stats.p95),
+                        format_ns(stats.p99),
+                    );
+                }
+            }
+            OutputFormat::Json => {
+                for kind in &kinds {
+                    let stats = summarize(&histogram[kind.index() as usize]);
+                    buf.clear();
+                    output::latency_json_line(
+                        &mut buf,
+                        &time,
+                        kind.name(),
+                        stats.count,
+                        &format_ns(stats.p50),
+                        &format_ns(stats.p95),
+                        &format_ns(stats.p99),
+                    );
+                    output::write_all(&buf);
+                }
+            }
+        }
+
         warn_on_drops(&skel.maps.drops, &mut dropped)?;
         std::thread::sleep(Duration::from_secs(1));
     }
+
+    print_summary(0, dropped, start.elapsed());
+    Ok(())
 }
