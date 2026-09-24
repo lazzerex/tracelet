@@ -1,6 +1,7 @@
 use crate::event::{printable, read_event};
 use crate::{
-    ExecEvent, OpenEvent, TcpEvent, AF_INET, AF_INET6, TCP_EVENT_CLOSE, TCP_EVENT_CONNECT,
+    ExecEvent, OpenEvent, TcpEvent, AF_INET, AF_INET6, RECORD_VERSION, TCP_EVENT_CLOSE,
+    TCP_EVENT_CONNECT,
 };
 
 pub const STREAM_MAX: usize = 512;
@@ -113,22 +114,19 @@ pub fn decode_tcp(data: &[u8]) -> Option<TcpEvent> {
 }
 
 pub fn decode_stream(data: &[u8]) -> Option<DashboardEvent> {
-    match data.len() {
-        72 => {
-            let ev = decode_tcp(data)?;
-            Some(DashboardEvent::Tcp {
-                pid: ev.pid,
-                event_type: ev.event_type,
-                family: ev.family,
-                comm: ev.comm,
-                dest: ev.destination().to_string(),
-            })
-        }
-        168 => {
-            let ev = read_event::<ExecEvent>(data)?;
-            if ev.kind != crate::EVENT_KIND_EXEC {
-                return None;
-            }
+    if data.len() < 8 {
+        return None;
+    }
+    let version = u32::from_ne_bytes([data[4], data[5], data[6], data[7]]);
+    if version != RECORD_VERSION {
+        return None;
+    }
+    let kind = u32::from_ne_bytes([data[0], data[1], data[2], data[3]]);
+    let payload = &data[8..];
+
+    match kind {
+        crate::EVENT_KIND_EXEC => {
+            let ev = read_event::<ExecEvent>(payload)?;
             if !printable(&ev.comm) || !printable(&ev.filename) {
                 return None;
             }
@@ -140,11 +138,8 @@ pub fn decode_stream(data: &[u8]) -> Option<DashboardEvent> {
                 path: ev.filename,
             })
         }
-        160 => {
-            let ev = read_event::<OpenEvent>(data)?;
-            if ev.kind != crate::EVENT_KIND_OPEN {
-                return None;
-            }
+        crate::EVENT_KIND_OPEN => {
+            let ev = read_event::<OpenEvent>(payload)?;
             if !printable(&ev.comm) || !printable(&ev.filename) {
                 return None;
             }
@@ -156,7 +151,16 @@ pub fn decode_stream(data: &[u8]) -> Option<DashboardEvent> {
                 path: ev.filename,
             })
         }
-        _ => None,
+        _ => {
+            let ev = decode_tcp(payload)?;
+            Some(DashboardEvent::Tcp {
+                pid: ev.pid,
+                event_type: ev.event_type,
+                family: ev.family,
+                comm: ev.comm,
+                dest: ev.destination().to_string(),
+            })
+        }
     }
 }
 
@@ -164,14 +168,50 @@ pub fn decode_stream(data: &[u8]) -> Option<DashboardEvent> {
 mod tests {
     use super::{decode_stream, file_event_name, DashboardEvent, FILE_EVENT_EXEC, FILE_EVENT_OPEN};
     use crate::{
-        ExecEvent, OpenEvent, TcpEvent, AF_INET, EVENT_KIND_EXEC, EVENT_KIND_OPEN,
+        ExecEvent, OpenEvent, TcpEvent, AF_INET, EVENT_KIND_EXEC, EVENT_KIND_OPEN, RECORD_VERSION,
         TCP_EVENT_CONNECT,
     };
 
-    fn as_bytes<E: Copy>(ev: &E) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts((ev as *const E) as *const u8, std::mem::size_of::<E>())
-        }
+    fn wrap_exec(ev: &ExecEvent) -> Vec<u8> {
+        let ev_bytes = unsafe {
+            std::slice::from_raw_parts(
+                (ev as *const ExecEvent) as *const u8,
+                std::mem::size_of::<ExecEvent>(),
+            )
+        };
+        let mut buf = Vec::with_capacity(8 + ev_bytes.len());
+        buf.extend_from_slice(&EVENT_KIND_EXEC.to_ne_bytes());
+        buf.extend_from_slice(&RECORD_VERSION.to_ne_bytes());
+        buf.extend_from_slice(ev_bytes);
+        buf
+    }
+
+    fn wrap_open(ev: &OpenEvent) -> Vec<u8> {
+        let ev_bytes = unsafe {
+            std::slice::from_raw_parts(
+                (ev as *const OpenEvent) as *const u8,
+                std::mem::size_of::<OpenEvent>(),
+            )
+        };
+        let mut buf = Vec::with_capacity(8 + ev_bytes.len());
+        buf.extend_from_slice(&EVENT_KIND_OPEN.to_ne_bytes());
+        buf.extend_from_slice(&RECORD_VERSION.to_ne_bytes());
+        buf.extend_from_slice(ev_bytes);
+        buf
+    }
+
+    fn wrap_tcp(ev: &TcpEvent) -> Vec<u8> {
+        let ev_bytes = unsafe {
+            std::slice::from_raw_parts(
+                (ev as *const TcpEvent) as *const u8,
+                std::mem::size_of::<TcpEvent>(),
+            )
+        };
+        let mut buf = Vec::with_capacity(8 + ev_bytes.len());
+        buf.extend_from_slice(&0u32.to_ne_bytes());
+        buf.extend_from_slice(&RECORD_VERSION.to_ne_bytes());
+        buf.extend_from_slice(ev_bytes);
+        buf
     }
 
     fn exec_event() -> ExecEvent {
@@ -220,7 +260,7 @@ mod tests {
 
     #[test]
     fn decodes_exec_events() {
-        let got = decode_stream(as_bytes(&exec_event())).unwrap();
+        let got = decode_stream(&wrap_exec(&exec_event())).unwrap();
         match got {
             DashboardEvent::File { kind, ppid, .. } => {
                 assert_eq!(kind, FILE_EVENT_EXEC);
@@ -234,7 +274,7 @@ mod tests {
 
     #[test]
     fn decodes_open_events() {
-        let got = decode_stream(as_bytes(&open_event())).unwrap();
+        let got = decode_stream(&wrap_open(&open_event())).unwrap();
         match got {
             DashboardEvent::File { kind, ppid, .. } => {
                 assert_eq!(kind, FILE_EVENT_OPEN);
@@ -248,7 +288,7 @@ mod tests {
 
     #[test]
     fn decodes_tcp_events() {
-        let got = decode_stream(as_bytes(&tcp_event())).unwrap();
+        let got = decode_stream(&wrap_tcp(&tcp_event())).unwrap();
         let (pid, dest) = match got {
             DashboardEvent::Tcp { pid, dest, .. } => (pid, dest),
             _ => panic!("expected tcp event"),
@@ -259,13 +299,40 @@ mod tests {
 
     #[test]
     fn rejects_wrong_kind_and_garbage_sizes() {
-        let mut ev = exec_event();
-        ev.kind = EVENT_KIND_OPEN;
-        assert!(decode_stream(as_bytes(&ev)).is_none());
-        let mut ev = open_event();
-        ev.kind = EVENT_KIND_EXEC;
-        assert!(decode_stream(as_bytes(&ev)).is_none());
+        let ev = open_event();
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&EVENT_KIND_EXEC.to_ne_bytes());
+        buf.extend_from_slice(&RECORD_VERSION.to_ne_bytes());
+        buf.extend_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                (&ev as *const OpenEvent) as *const u8,
+                std::mem::size_of::<OpenEvent>(),
+            )
+        });
+        let got = decode_stream(&buf);
+        assert!(got.is_none());
         assert!(decode_stream(&[0u8; 100]).is_none());
+    }
+
+    #[test]
+    fn rejects_wrong_version() {
+        let ev = exec_event();
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&EVENT_KIND_EXEC.to_ne_bytes());
+        buf.extend_from_slice(&999u32.to_ne_bytes());
+        buf.extend_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                (&ev as *const ExecEvent) as *const u8,
+                std::mem::size_of::<ExecEvent>(),
+            )
+        });
+        assert!(decode_stream(&buf).is_none());
+    }
+
+    #[test]
+    fn rejects_too_short() {
+        assert!(decode_stream(&[0u8; 4]).is_none());
+        assert!(decode_stream(&[]).is_none());
     }
 
     #[test]
