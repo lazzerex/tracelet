@@ -1,26 +1,48 @@
-<div align="center">
+<h1 align="center">Tracelet</h1>
 
-# Tracelet
+<p align="center">
+  <strong>Linux observability in Rust + eBPF</strong><br />
+  Watch kernel and system activity, from process execution and file opens
+  to TCP connections and latency, through a CLI or live TUI dashboard.
+</p>
 
-**Linux observability in Rust + eBPF**
+<p align="center">
+  <img src="https://img.shields.io/badge/Rust-2021-CE412B?logo=rust&logoColor=white" alt="Rust 2021" />
+  <img src="https://img.shields.io/badge/eBPF-C-49B34D?logo=ebpf&logoColor=white" alt="eBPF (C)" />
+  <img src="https://img.shields.io/badge/libbpf-1.x-333333?logo=linux&logoColor=white" alt="libbpf" />
+  <img src="https://img.shields.io/badge/clap-4.x-FF6C37?logo=clap&logoColor=white" alt="clap 4" />
+  <img src="https://img.shields.io/badge/ratatui-0.29-DC4A30?logo=ratatui&logoColor=white" alt="ratatui" />
+  <img src="https://img.shields.io/badge/Platform-Linux%20x86__64-FCC624?logo=linux&logoColor=black" alt="Linux x86_64" />
+</p>
 
-Watch kernel and system activity, from process execution and file opens
-to TCP connections and latency, through a CLI or live TUI dashboard.
+<p align="center">
+  <a href="https://github.com/lazzerex/tracelet/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lazzerex/tracelet/ci.yml?label=CI&logo=githubactions&logoColor=white" alt="CI Status" /></a>
+  <a href="https://github.com/lazzerex/tracelet/releases/latest"><img src="https://img.shields.io/github/v/release/lazzerex/tracelet?label=release&logo=github" alt="Latest Release" /></a>
+  <a href="https://github.com/lazzerex/tracelet/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" /></a>
+</p>
 
-[![CI](https://github.com/lazzerex/tracelet/actions/workflows/ci.yml/badge.svg)](https://github.com/lazzerex/tracelet/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/lazzerex/tracelet?style=flat-square)](https://github.com/lazzerex/tracelet/releases/latest)
-[![Rust](https://img.shields.io/badge/Rust-2021-blue?style=flat-square)](https://www.rust-lang.org/)
-[![eBPF](https://img.shields.io/badge/eBPF-C-green?style=flat-square)](https://ebpf.io/)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20x86__64-orange?style=flat-square)]()
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ebpf-io/ebpf.io/main/static/images/logos/ebpf-logo.svg" height="42" alt="eBPF" title="eBPF" />
+  &nbsp;&nbsp;
+  <img src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/main/static/images/rust-logo-blk.svg" height="42" alt="Rust" title="Rust" />
+  &nbsp;&nbsp;
+  <img src="https://raw.githubusercontent.com/libbpf/libbpf.github.io/main/logo.svg" height="42" alt="libbpf" title="libbpf" />
+  &nbsp;&nbsp;
+  <img src="https://raw.githubusercontent.com/ratatui/ratatui/master/assets/logo-transparent.svg" height="42" alt="ratatui" title="ratatui" />
+</p>
 
-<br>
+<p align="center">
+  <sub>eBPF · Rust · libbpf · ratatui</sub>
+</p>
 
-```
-tracelet exec      tracelet open      tracelet tcp
-tracelet latency   tracelet dashboard
-```
-
-</div>
+<p align="center">
+  <a href="#tech-stack">Tech Stack</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="#filtering">Filtering</a> ·
+  <a href="#building">Building</a> ·
+  <a href="#running">Running</a> ·
+  <a href="#installation">Installation</a>
+</p>
 
 ---
 
@@ -259,41 +281,45 @@ Known limitations:
 
 ## Filtering
 
-Every collector accepts `--pid <PID>` and `--comm <NAME>`; `tracelet
-tcp` adds `--event <connect|accept|close>` and `tracelet latency` adds
-`--syscall <read|write|openat>`.
+Every collector accepts `--pid <PID>` (repeatable, up to 16) and
+`--comm <NAME>`; `tracelet tcp` adds `--ppid <PID>` for parent-PID
+filtering and `--event <connect|accept|close>`; `tracelet latency`
+adds `--syscall <read|write|openat>`.
 
-The pid, comm, and event-type filters run inside the eBPF programs.
-The collector writes a `filter_config` struct into the skeleton's
-read-only data before load, and each program checks it before touching
-the ring buffer, so a filtered-out event never reserves a ring buffer
-slot, never crosses the kernel boundary, and never wakes the printer:
+The pid, ppid, comm, and event-type filters run inside the eBPF
+programs. After loading, the collector writes a `filter_config` struct
+into the `filter_map` BPF array, and each program checks it before
+touching the ring buffer, so a filtered-out event never reserves a ring
+buffer slot, never crosses the kernel boundary, and never wakes the
+printer:
 
 ```
 struct filter_config {
-    __u32 pid;
-    __u32 pid_enabled;
-    __u32 comm_enabled;
     __u32 event_mask;
-    char comm[16];
+    __u32 pid_count;
+    __u32 pids[16];
+    __u32 ppid;
+    __u32 ppid_enabled;
+    __u32 comm_enabled;
+    char  comm[16];
 };
 ```
+
+Because the config lives in a `BPF_MAP_TYPE_ARRAY` (not read-only
+data), it can be updated at runtime without reloading the program —
+useful for changing filters between events in long-running sessions.
 
 `--syscall` is different: it decides which programs are attached, so
 unselected syscalls are not traced at all instead of filtered after
 the fact.
 
-The filters are fixed for the lifetime of the process because
-read-only data cannot change after load. Runtime filter changes would
-need a writable BPF map instead, which is the standard extension point
-if this tool ever needs it.
-
 Kernel-side vs userspace-side filtering:
 
 - Kernel-side (used here): the check itself runs in kernel context on
-  every hit event even when it rejects it. The pid check is one helper
-  call and a compare; the comm check is one helper call plus an
-  unrolled 16-byte comparison against `bpf_get_current_comm` output.
+  every hit event even when it rejects it. The multi-pid check uses a
+  `#pragma unroll` loop over up to 16 PIDs; the ppid check reads
+  `task->real_parent->tgid`; the comm check is one helper call plus
+  an unrolled 16-byte comparison against `bpf_get_current_comm` output.
   No string helpers run on user data and no user pointers are read,
   so the check's cost is constant regardless of process name content.
   In exchange, rejected events cost nothing else: no ring buffer slot,
@@ -491,14 +517,15 @@ buffer and updating aggregates, so nothing is lost while paused.
 Download the latest release from the [GitHub Releases page](https://github.com/lazzerex/tracelet/releases/latest):
 
 ```bash
-# download and extract
-tar -xzf tracelet-v0.2.0-linux-x86_64.tar.gz
+# download and extract (replace VERSION with the latest tag)
+curl -LO https://github.com/lazzerex/tracelet/releases/latest/download/tracelet-VERSION-linux-x86_64.tar.gz
+tar -xzf tracelet-VERSION-linux-x86_64.tar.gz
 
 # verify checksum
-sha256sum -c tracelet-v0.2.0-linux-x86_64.tar.gz.sha256
+sha256sum -c tracelet-VERSION-linux-x86_64.tar.gz.sha256
 
 # move to PATH
-sudo mv tracelet /usr/local/bin/
+sudo mv tracelet-VERSION-linux-x86_64/tracelet /usr/local/bin/
 ```
 
 Tracelet requires Linux x86_64 with kernel ≥ 5.8 (BTF + tracepoint support).
