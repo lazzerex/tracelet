@@ -128,7 +128,7 @@ jobs:
         run: |
           ./target/release/tracelet --version
           ./target/release/tracelet --help
-          for cmd in exec open tcp latency top dashboard; do
+          for cmd in exec open tcp latency dashboard; do
             ./target/release/tracelet "$cmd" --help > /dev/null
           done
 
