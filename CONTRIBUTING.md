@@ -106,6 +106,7 @@ Tracelet contains both userspace Rust code and kernel-side eBPF programs written
 
 When modifying eBPF programs:
 
+- **Do not hand-edit `src/bpf/vmlinux.h`** — it is auto-generated from the running kernel's BTF. Regenerate it with `bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h` when a needed struct/field is missing.
 - Ensure the program passes the eBPF verifier.
 - Keep event structures consistent between kernel-side code and Rust decoding.
 - Validate event sizes before decoding data.
