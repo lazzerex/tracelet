@@ -94,8 +94,11 @@ impl Shared {
 }
 
 fn wall_time(data: &[u8], boot_offset_ns: u64) -> String {
+    if data.len() < 16 {
+        return "???:??:??.???".into();
+    }
     let mut raw = [0u8; 8];
-    raw.copy_from_slice(&data[..8]);
+    raw.copy_from_slice(&data[8..16]);
     crate::events::clock_time(boot_offset_ns.wrapping_add(u64::from_ne_bytes(raw)))
 }
 
@@ -119,12 +122,9 @@ fn collect(
 ) -> Result<(), TraceletError> {
     let skel_builder = TraceletSkelBuilder::default();
     let mut object = std::mem::MaybeUninit::uninit();
-    let mut open_skel = skel_builder.open(&mut object)?;
-    filter::apply(
-        &mut open_skel.maps.rodata_data.as_deref_mut().unwrap().filt,
-        config,
-    );
+    let open_skel = skel_builder.open(&mut object)?;
     let skel = open_skel.load()?;
+    filter::apply_map(&skel.maps.filter_map, config)?;
 
     let mut links = Vec::new();
     links.push(skel.progs.trace_exec.attach()?);
@@ -155,7 +155,7 @@ fn collect(
     let rb = rb_builder.build()?;
 
     let mut drops_seen = 0u64;
-    loop {
+    while crate::RUNNING.load(std::sync::atomic::Ordering::SeqCst) {
         rb.poll(Duration::from_millis(200))?;
         let current = crate::stats::dropped_events(&skel.maps.drops).unwrap_or(0);
         if let Ok(mut guard) = shared.lock() {
@@ -166,6 +166,7 @@ fn collect(
         let _ = crate::stats::warn_on_drops(&skel.maps.drops, &mut drops_seen);
         refresh_latency(&skel, &shared);
     }
+    Ok(())
 }
 
 fn refresh_latency(skel: &crate::TraceletSkel<'_>, shared: &Arc<Mutex<Shared>>) {
