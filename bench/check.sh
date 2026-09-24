@@ -382,6 +382,22 @@ else
     pass "top subcommand properly removed"
 fi
 
+section "version consistency"
+
+CARGO_VER=$(grep '^version' "$ROOT/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+BIN_VER=$("$BIN" --version 2>/dev/null | sed 's/tracelet //' || true)
+if [ "$CARGO_VER" = "$BIN_VER" ] && [ -n "$CARGO_VER" ]; then
+    pass "version consistency: Cargo.toml=$CARGO_VER == binary=$BIN_VER"
+else
+    fail "version mismatch: Cargo.toml=$CARGO_VER != binary=$BIN_VER"
+fi
+
+if bash "$ROOT/scripts/version.sh" self-test; then
+    pass "version.sh self-test"
+else
+    fail "version.sh self-test"
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
     section "live checks"
     note "skipped: BPF needs root or CAP_BPF"
