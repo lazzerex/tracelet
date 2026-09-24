@@ -3,7 +3,17 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-pub fn parse_duration(s: &str) -> Result<Duration, String> {
+pub fn parse_buffer_mb(s: &str) -> Result<u32, String> {
+    let mb: u32 = s
+        .parse()
+        .map_err(|e: std::num::ParseIntError| e.to_string())?;
+    if mb == 0 || !mb.is_power_of_two() {
+        return Err("must be a power of 2 (1, 2, 4, 8, 16, ...)".into());
+    }
+    Ok(mb)
+}
+
+fn parse_duration(s: &str) -> Result<Duration, String> {
     let s = s.trim();
     if let Some(n) = s.strip_suffix("ms") {
         n.parse::<u64>()
@@ -33,6 +43,7 @@ mod events;
 mod exec;
 mod filter;
 mod hist;
+mod kernel;
 mod latency;
 mod open;
 mod output;
@@ -63,12 +74,20 @@ pub enum OutputFormat {
     Json,
 }
 
+#[derive(clap::Args, Clone, Copy)]
+pub struct BufferArgs {
+    #[arg(long, default_value_t = 16, value_parser = parse_buffer_mb, value_name = "MB", help = "Ring buffer size in MiB (power of 2, minimum 1)")]
+    pub buffer_mb: u32,
+}
+
 #[derive(Subcommand)]
 enum Command {
     #[command(about = "Trace process execution events")]
     Exec {
         #[command(flatten)]
         filter: FilterArgs,
+        #[command(flatten)]
+        buffer: BufferArgs,
         #[arg(long, help = "Stop after N printed events")]
         count: Option<u64>,
         #[arg(long, value_parser = parse_duration, value_name = "DURATION", help = "Stop after this duration (e.g. 30s, 5m)")]
@@ -80,6 +99,8 @@ enum Command {
     Open {
         #[command(flatten)]
         filter: FilterArgs,
+        #[command(flatten)]
+        buffer: BufferArgs,
         #[arg(long, help = "Stop after N printed events")]
         count: Option<u64>,
         #[arg(long, value_parser = parse_duration, value_name = "DURATION", help = "Stop after this duration (e.g. 30s, 5m)")]
@@ -91,6 +112,8 @@ enum Command {
     Tcp {
         #[command(flatten)]
         filter: FilterArgs,
+        #[command(flatten)]
+        buffer: BufferArgs,
         #[arg(long, value_enum, help = "Only show this connection event")]
         event: Option<EventKind>,
         #[arg(long, help = "Stop after N printed events")]
@@ -104,6 +127,8 @@ enum Command {
     Latency {
         #[command(flatten)]
         filter: FilterArgs,
+        #[command(flatten)]
+        buffer: BufferArgs,
         #[arg(long, value_enum, help = "Only measure this syscall")]
         syscall: Option<SyscallKind>,
         #[arg(long, value_parser = parse_duration, value_name = "DURATION", help = "Stop after this duration (e.g. 30s, 5m)")]
@@ -115,6 +140,8 @@ enum Command {
     Dashboard {
         #[command(flatten)]
         filter: FilterArgs,
+        #[command(flatten)]
+        buffer: BufferArgs,
     },
 }
 
@@ -177,30 +204,34 @@ pub fn main() -> Result<(), TraceletError> {
     match &cli.command {
         Command::Exec {
             filter,
+            buffer,
             count,
             duration,
             json,
-        } => exec::run(filter, *count, *duration, *json)?,
+        } => exec::run(filter, buffer.buffer_mb, *count, *duration, *json)?,
         Command::Open {
             filter,
+            buffer,
             count,
             duration,
             json,
-        } => open::run(filter, *count, *duration, *json)?,
+        } => open::run(filter, buffer.buffer_mb, *count, *duration, *json)?,
         Command::Tcp {
             filter,
+            buffer,
             event,
             count,
             duration,
             json,
-        } => tcp::run(filter, *event, *count, *duration, *json)?,
+        } => tcp::run(filter, buffer.buffer_mb, *event, *count, *duration, *json)?,
         Command::Latency {
             filter,
+            buffer,
             syscall,
             duration,
             json,
-        } => latency::run(filter, *syscall, *duration, *json)?,
-        Command::Dashboard { filter } => dashboard::run(filter)?,
+        } => latency::run(filter, buffer.buffer_mb, *syscall, *duration, *json)?,
+        Command::Dashboard { filter, buffer } => dashboard::run(filter, buffer.buffer_mb)?,
     }
     Ok(())
 }
