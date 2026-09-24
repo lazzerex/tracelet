@@ -518,13 +518,6 @@ sha256sum -c "tracelet-${VERSION}-linux-x86_64.tar.gz.sha256"
 sudo mv "tracelet-${VERSION}-linux-x86_64/tracelet" /usr/local/bin/
 ```
 
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Compatibility](docs/COMPATIBILITY.md)
-- [Changelog](CHANGELOG.md)
-- [Roadmap](ROADMAP.md)
-
 ## Requirements
 
 Tracelet requires Linux x86_64 with kernel >= 5.8 (BTF + tracepoint support).
