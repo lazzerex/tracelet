@@ -1,35 +1,30 @@
-use std::time::Duration;
+use std::cell::Cell;
+use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use libbpf_rs::skel::{OpenSkel, SkelBuilder};
 use libbpf_rs::RingBufferBuilder;
-use tracelet_common::{OpenEvent, FILTER_EVENT_ALL};
+use tracelet_common::FILTER_EVENT_ALL;
 
 use crate::error::TraceletError;
 use crate::events::{boot_time_ns, decode_open, str_of, wall_time};
 use crate::filter::{self, FilterArgs};
+use crate::output::{self, print_summary};
 use crate::stats::warn_on_drops;
-use crate::TraceletSkelBuilder;
+use crate::{OutputFormat, TraceletSkelBuilder, RUNNING};
 
-fn print_event(ev: &OpenEvent, boot_offset_ns: u64) {
-    println!(
-        "{:<12} {:<7} {:<16} {}",
-        wall_time(ev.ktime_ns, boot_offset_ns),
-        ev.pid,
-        str_of(&ev.comm),
-        str_of(&ev.filename)
-    );
-}
-
-pub fn run(args: &FilterArgs) -> Result<(), TraceletError> {
+pub fn run(
+    args: &FilterArgs,
+    count: Option<u64>,
+    duration: Option<Duration>,
+    json: OutputFormat,
+) -> Result<(), TraceletError> {
     let config = filter::config(args, FILTER_EVENT_ALL)?;
     let skel_builder = TraceletSkelBuilder::default();
     let mut object = std::mem::MaybeUninit::uninit();
-    let mut open_skel = skel_builder.open(&mut object)?;
-    filter::apply(
-        &mut open_skel.maps.rodata_data.as_deref_mut().unwrap().filt,
-        &config,
-    );
+    let open_skel = skel_builder.open(&mut object)?;
     let skel = open_skel.load()?;
+    filter::apply_map(&skel.maps.filter_map, &config)?;
 
     let mut links = Vec::new();
     for prog in [
@@ -41,20 +36,45 @@ pub fn run(args: &FilterArgs) -> Result<(), TraceletError> {
     }
 
     let boot_offset_ns = boot_time_ns();
-    println!("TIME         PID     PROCESS          PATH");
+    if matches!(json, OutputFormat::Text) {
+        println!("TIME         PID     PROCESS          PATH");
+    }
+
+    let printed = Cell::new(0u64);
+    let mut dropped: u64 = 0;
+    let start = Instant::now();
+    let mut buf = String::with_capacity(256);
 
     let mut rb_builder = RingBufferBuilder::new();
     rb_builder.add(&skel.maps.events, |data| {
+        if !RUNNING.load(Ordering::SeqCst) {
+            return 0;
+        }
         if let Some(ev) = decode_open(data) {
-            print_event(&ev, boot_offset_ns);
+            let time = wall_time(ev.ktime_ns, boot_offset_ns);
+            let comm = str_of(&ev.comm);
+            let filename = str_of(&ev.filename);
+            match json {
+                OutputFormat::Text => {
+                    println!("{:<12} {:<7} {:<16} {}", time, ev.pid, comm, filename);
+                }
+                OutputFormat::Json => {
+                    buf.clear();
+                    output::open_json_line(&mut buf, &time, ev.pid, comm, filename);
+                    output::write_all(&buf);
+                }
+            }
+            printed.set(printed.get() + 1);
         }
         0
     })?;
     let rb = rb_builder.build()?;
 
-    let mut dropped = 0;
-    loop {
+    while !crate::should_stop(printed.get(), count, start, duration) {
         rb.poll(Duration::from_millis(200))?;
         warn_on_drops(&skel.maps.drops, &mut dropped)?;
     }
+
+    print_summary(printed.get(), dropped, start.elapsed());
+    Ok(())
 }
