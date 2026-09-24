@@ -22,20 +22,6 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ebpf-io/ebpf.io/main/static/images/logos/ebpf-logo.svg" height="42" alt="eBPF" title="eBPF" />
-  &nbsp;&nbsp;
-  <img src="https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/main/static/images/rust-logo-blk.svg" height="42" alt="Rust" title="Rust" />
-  &nbsp;&nbsp;
-  <img src="https://raw.githubusercontent.com/libbpf/libbpf.github.io/main/logo.svg" height="42" alt="libbpf" title="libbpf" />
-  &nbsp;&nbsp;
-  <img src="https://raw.githubusercontent.com/ratatui/ratatui/master/assets/logo-transparent.svg" height="42" alt="ratatui" title="ratatui" />
-</p>
-
-<p align="center">
-  <sub>eBPF · Rust · libbpf · ratatui</sub>
-</p>
-
-<p align="center">
   <a href="#tech-stack">Tech Stack</a> ·
   <a href="#commands">Commands</a> ·
   <a href="#filtering">Filtering</a> ·
