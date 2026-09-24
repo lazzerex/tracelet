@@ -76,6 +76,7 @@ pub fn tcp_json_line(
     out.push_str("}\n");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn latency_json_line(
     out: &mut String,
     time: &str,
@@ -84,6 +85,8 @@ pub fn latency_json_line(
     p50: &str,
     p95: &str,
     p99: &str,
+    mean: &str,
+    max: &str,
 ) {
     out.push_str("{\"event\":\"latency\",\"time\":");
     json_escape_string(out, time);
@@ -97,6 +100,10 @@ pub fn latency_json_line(
     json_escape_string(out, p95);
     out.push_str(",\"p99\":");
     json_escape_string(out, p99);
+    out.push_str(",\"mean\":");
+    json_escape_string(out, mean);
+    out.push_str(",\"max\":");
+    json_escape_string(out, max);
     out.push_str("}\n");
 }
 
