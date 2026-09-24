@@ -348,7 +348,7 @@ else
     fail "--version"
 fi
 
-for cmd in exec open tcp latency top dashboard; do
+for cmd in exec open tcp latency dashboard; do
     if "$BIN" "$cmd" --help >/dev/null 2>&1; then
         pass "help: $cmd"
     else
@@ -374,12 +374,12 @@ else
     fail "latency --syscall values missing"
 fi
 
-section "placeholders"
+section "removed commands"
 
-if "$BIN" top 2>/dev/null | grep -q 'not implemented'; then
-    pass "top still a documented placeholder"
+if "$BIN" top >/dev/null 2>&1; then
+    fail "top subcommand should not exist"
 else
-    fail "top no longer prints the placeholder"
+    pass "top subcommand properly removed"
 fi
 
 if [ "$(id -u)" -ne 0 ]; then
