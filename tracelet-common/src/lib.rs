@@ -11,7 +11,7 @@ pub use filter::{
     FilterConfig, COMM_MAX_LEN, FILTER_EVENT_ACCEPT, FILTER_EVENT_ALL, FILTER_EVENT_CLOSE,
     FILTER_EVENT_CONNECT, MAX_PIDS,
 };
-pub use latency::{HIST_SLOTS, SYSCALL_COUNT, SYSCALL_NAMES};
+pub use latency::{HIST_SLOTS, LATENCY_SLOTS, SYSCALL_COUNT, SYSCALL_NAMES};
 
 pub const EXEC_EVENT_SIZE: usize = std::mem::size_of::<ExecEvent>();
 pub const OPEN_EVENT_SIZE: usize = std::mem::size_of::<OpenEvent>();
