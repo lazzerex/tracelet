@@ -1,6 +1,8 @@
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
     pub count: u64,
+    pub sum: u64,
+    pub max: u64,
     pub p50: u64,
     pub p95: u64,
     pub p99: u64,
@@ -15,12 +17,22 @@ pub fn upper_bound_ns(slot: u32) -> u64 {
 }
 
 pub fn summarize(counts: &[u64]) -> Stats {
-    let count: u64 = counts.iter().sum();
+    let hist_len = (tracelet_common::HIST_SLOTS as usize).min(counts.len());
+    let hist = &counts[..hist_len];
+    let count: u64 = hist.iter().sum();
+    let sum = *counts
+        .get(tracelet_common::HIST_SLOTS as usize)
+        .unwrap_or(&0);
+    let max = *counts
+        .get(tracelet_common::HIST_SLOTS as usize + 1)
+        .unwrap_or(&0);
     Stats {
         count,
-        p50: percentile(counts, count, 50),
-        p95: percentile(counts, count, 95),
-        p99: percentile(counts, count, 99),
+        sum,
+        max,
+        p50: percentile(hist, count, 50),
+        p95: percentile(hist, count, 95),
+        p99: percentile(hist, count, 99),
     }
 }
 
@@ -54,7 +66,7 @@ fn percentile(counts: &[u64], total: u64, p: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{format_ns, summarize, upper_bound_ns};
-    use tracelet_common::{HIST_SLOTS, SYSCALL_COUNT, SYSCALL_NAMES};
+    use tracelet_common::{HIST_SLOTS, LATENCY_SLOTS, SYSCALL_COUNT, SYSCALL_NAMES};
 
     fn c_slot_for_ns(ns: u64) -> u32 {
         if ns == 0 {
@@ -128,5 +140,24 @@ mod tests {
     fn syscall_table_matches_c_contract() {
         assert_eq!(SYSCALL_NAMES.len(), SYSCALL_COUNT as usize);
         assert_eq!(HIST_SLOTS * SYSCALL_COUNT, 96);
+    }
+
+    #[test]
+    fn latency_slots_matches_c_contract() {
+        assert_eq!(LATENCY_SLOTS, HIST_SLOTS + 2);
+        assert_eq!(LATENCY_SLOTS * SYSCALL_COUNT, 102);
+    }
+
+    #[test]
+    fn summarize_handles_extended_slice() {
+        let mut counts = vec![0u64; LATENCY_SLOTS as usize];
+        counts[5] = 10;
+        counts[HIST_SLOTS as usize] = 500;
+        counts[HIST_SLOTS as usize + 1] = 100;
+        let stats = summarize(&counts);
+        assert_eq!(stats.count, 10);
+        assert_eq!(stats.sum, 500);
+        assert_eq!(stats.max, 100);
+        assert_eq!(stats.p50, upper_bound_ns(5));
     }
 }
