@@ -10,7 +10,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 2);
+    __uint(max_entries, 3);
     __type(key, __u32);
     __type(value, __u64);
 } drops SEC(".maps");
@@ -232,7 +232,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, SYSCALL_COUNT * HIST_SLOTS);
+    __uint(max_entries, SYSCALL_COUNT * LATENCY_SLOTS);
     __type(key, __u32);
     __type(value, __u64);
 } latency_hist SEC(".maps");
@@ -282,7 +282,7 @@ static __always_inline int syscall_exit(__u32 syscall)
 {
     __u64 key = bpf_get_current_pid_tgid();
     __u64 *start = bpf_map_lookup_elem(&latency_start, &key);
-    __u64 delta, *count;
+    __u64 delta, *count, *maxp;
     __u32 slot, idx;
 
     if (!start)
@@ -293,10 +293,21 @@ static __always_inline int syscall_exit(__u32 syscall)
     slot = log2_slot(delta);
     if (slot >= HIST_SLOTS)
         slot = HIST_SLOTS - 1;
-    idx = syscall * HIST_SLOTS + slot;
+    idx = syscall * LATENCY_SLOTS + slot;
     count = bpf_map_lookup_elem(&latency_hist, &idx);
     if (count)
         __sync_fetch_and_add(count, 1);
+
+    idx = syscall * LATENCY_SLOTS + HIST_SLOTS;
+    count = bpf_map_lookup_elem(&latency_hist, &idx);
+    if (count)
+        __sync_fetch_and_add(count, delta);
+
+    idx = syscall * LATENCY_SLOTS + HIST_SLOTS + 1;
+    maxp = bpf_map_lookup_elem(&latency_hist, &idx);
+    if (maxp && delta > *maxp)
+        *maxp = delta;
+
     return 0;
 }
 
