@@ -37,6 +37,7 @@ struct open_event {
 #define EVENT_KIND_OPEN 2
 
 #define HIST_SLOTS 32
+#define LATENCY_SLOTS (HIST_SLOTS + 2)
 
 #define FILTER_EVENT_CONNECT 1
 #define FILTER_EVENT_ACCEPT 2
